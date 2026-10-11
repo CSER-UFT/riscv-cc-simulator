@@ -170,22 +170,27 @@ export function parse(tokens) {
         if (is('{')) return block();
         if (tok.kind === 'keyword') {
             switch (tok.text) {
+                // Os nós de comando são criados ao reconhecer a palavra reservada, antes das partes.
                 case 'if': {
                     next(); expect('(');
-                    const cond = expression();
+                    const n = node('If', tok, { cond: null, then: null, else: null });
+                    n.cond = expression();
                     expect(')');
-                    const n = node('If', tok, { cond, then: statement(), else: null });
+                    n.then = statement();
                     if (is('else') && peek().kind === 'keyword') { next(); n.else = statement(); }
                     return n;
                 }
                 case 'while': {
                     next(); expect('(');
-                    const cond = expression();
+                    const n = node('While', tok, { cond: null, body: null });
+                    n.cond = expression();
                     expect(')');
-                    return node('While', tok, { cond, body: statement() });
+                    n.body = statement();
+                    return n;
                 }
                 case 'for': {
                     next(); expect('(');
+                    const n = node('For', tok, { init: null, cond: null, step: null, body: null });
                     let init = null;
                     if (isType()) {
                         const tt = peek();
@@ -195,17 +200,20 @@ export function parse(tokens) {
                         init = node('ExprStmt', et, { expr: expression() });
                         expect(';');
                     } else next();
-                    const cond = is(';') ? null : expression();
+                    n.init = init;
+                    n.cond = is(';') ? null : expression();
                     expect(';');
-                    const step = is(')') ? null : expression();
+                    n.step = is(')') ? null : expression();
                     expect(')');
-                    return node('For', tok, { init, cond, step, body: statement() });
+                    n.body = statement();
+                    return n;
                 }
                 case 'return': {
                     next();
-                    const value = is(';') ? null : expression();
+                    const n = node('Return', tok, { value: null });
+                    n.value = is(';') ? null : expression();
                     expect(';');
-                    return node('Return', tok, { value });
+                    return n;
                 }
                 case 'break': next(); expect(';'); return node('Break', tok);
                 case 'continue': next(); expect(';'); return node('Continue', tok);

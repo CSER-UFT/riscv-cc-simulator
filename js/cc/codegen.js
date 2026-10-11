@@ -16,6 +16,7 @@
  * vira cópias para uma posição do quadro no fim de cada bloco predecessor.
  */
 import { numberValues, valueText, instText } from './irgen.js';
+import { str } from './types.js';
 
 const INT_POOL = ['t0', 't1', 't2', 't3', 't4', 't5'];
 const FP_POOL = ['ft0', 'ft1', 'ft2', 'ft3', 'ft4', 'ft5', 'ft6', 'ft7'];
@@ -142,7 +143,7 @@ function genFunction(F, emitLine, poolLabel, opts) {
         bottom -= a.bytes;
         allocaOff.set(a.dst, bottom);
         const t = a.sym.type;
-        slots.push({ name: a.sym.name, off: bottom, size: a.bytes, kind: a.sym.kind === 'param' ? 'param' : t.k === 'array' ? 'array' : 'local', ty: a.allocTy, ir: valueText(a.dst) });
+        slots.push({ name: a.sym.name, off: bottom, size: a.bytes, kind: a.sym.kind === 'param' ? 'param' : t.k === 'array' ? 'array' : 'local', ty: str(t), ir: valueText(a.dst), sym: a.sym.id });
     }
     const slotOff = new Map();
     const slotOf = (v) => {

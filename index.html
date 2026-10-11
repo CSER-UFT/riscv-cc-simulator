@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Simulador de Compilador RISC-V</title>
+        <meta name="description" content="Simulador didático de compilador: MiniC (um subconjunto do C) para IR no formato do LLVM e assembly RISC-V, com tokens, árvore sintática, tabela de símbolos, registro de ativação e execução." />
+        <link rel="icon" href="./svg/cpu.svg" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" type="text/css" href="./css/index.css" />
+        <script>
+            // Aplica o tema antes da primeira pintura, para não piscar.
+            try {
+                const theme = localStorage.getItem('cc.theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.dataset.theme = theme;
+            } catch { document.documentElement.dataset.theme = 'light'; }
+        </script>
+    </head>
+    <body>
+        <header id="header">
+            <div class="brand"><span class="icon i-cpu brand-mark" aria-hidden="true"></span><span class="brand-name" data-i18n-html="ui.appTitle">Simulador de Compilador <b>RISC-V</b></span></div>
+            <div class="tools">
+                <label class="lang"><span class="sr-only" data-i18n="ui.language">Idioma</span><select id="lang-select"></select></label>
+                <button type="button" id="theme-toggle" class="btn icon-btn" data-i18n-title="ui.theme"><span class="icon i-moon" aria-hidden="true"></span><span class="sr-only" data-i18n="ui.theme">Alternar contraste</span></button>
+                <button type="button" id="open-ajuda" class="btn" data-i18n="ui.help">Ajuda</button>
+            </div>
+        </header>
+        <div id="readme" class="readme"></div>
+        <main>
+            <div>
+                <section>
+                    <h2 data-i18n="src.title">Código MiniC</h2>
+                    <label><span data-i18n="cfg.example">Exemplo</span> <select id="example"></select></label>
+                    <div class="code-box">
+                        <pre id="gutter" class="code-gutter" aria-hidden="true"></pre>
+                        <div class="code-area">
+                            <pre id="marks" class="marks" aria-hidden="true"></pre>
+                            <pre id="highlight" aria-hidden="true"></pre>
+                            <textarea id="src" spellcheck="false" wrap="off" aria-labelledby="srcTitle"></textarea>
+                        </div>
+                    </div>
+                    <ul id="errors" class="errors"></ul>
+                    <div class="row" style="margin-top:8px">
+                        <button type="button" class="btn primary" id="run" data-i18n="btn.compile" data-i18n-title="btn.compileHelp">Compilar e executar</button>
+                        <button type="button" class="btn outline" id="cpu" data-i18n="btn.cpu" data-i18n-title="btn.cpuHelp">Abrir no simulador de processadores</button>
+                    </div>
+                    <div class="row opts">
+                        <label><input type="checkbox" id="optIr" checked /> <span data-i18n="opt.ir">Comentários com a IR</span></label>
+                        <label><input type="checkbox" id="optSrc" checked /> <span data-i18n="opt.src">Linhas do código fonte</span></label>
+                    </div>
+                </section>
+                <section style="margin-top:16px">
+                    <h2 data-i18n="run.title">Execução</h2>
+                    <div id="runBox"></div>
+                </section>
+            </div>
+            <div>
+                <section>
+                    <ol class="phases" id="phases" data-i18n-title="phase.title"></ol>
+                    <div class="tabs" id="tabs">
+                        <button type="button" class="btn" data-tab="tokens" data-i18n="tab.tokens">Tokens</button>
+                        <button type="button" class="btn" data-tab="ast" data-i18n="tab.ast">Árvore</button>
+                        <button type="button" class="btn" data-tab="symbols" data-i18n="tab.symbols">Símbolos</button>
+                        <button type="button" class="btn" data-tab="code" data-i18n="tab.code">IR e RISC-V</button>
+                        <button type="button" class="btn" data-tab="frame" data-i18n="tab.frame">Pilha</button>
+                    </div>
+
+                    <div class="pane" id="pane-tokens">
+                        <p class="note" data-i18n-html="tokens.note"></p>
+                        <div class="row ctl" data-stepper="tokens"></div>
+                        <div class="scroll-box" id="tokBox"><table id="tokTable"></table></div>
+                        <div class="row" style="margin-top:8px"><button type="button" class="btn outline" id="tokTex" data-i18n="exp.tex">Tabela em LaTeX</button></div>
+                    </div>
+
+                    <div class="pane" id="pane-ast">
+                        <p class="note" data-i18n="ast.note"></p>
+                        <div class="row ctl" data-stepper="ast"></div>
+                        <div class="row" style="margin-top:8px">
+                            <label style="margin:0"><span data-i18n="ast.show">Mostrar</span> <select id="astFn"></select></label>
+                            <button type="button" class="btn outline" id="astSvg" data-i18n="exp.svg">Exportar figura (SVG)</button>
+                            <span class="note legend" data-i18n-html="ast.legend"></span>
+                        </div>
+                        <div class="fig-box" id="astFig"></div>
+                    </div>
+
+                    <div class="pane" id="pane-symbols">
+                        <p class="note" data-i18n="sym.note"></p>
+                        <div class="scroll-box"><table id="symTable"></table></div>
+                        <div class="row" style="margin-top:8px"><button type="button" class="btn outline" id="symTex" data-i18n="exp.tex">Tabela em LaTeX</button></div>
+                    </div>
+
+                    <div class="pane" id="pane-code">
+                        <p class="note"><span data-i18n="code.note"></span> <span id="codeStats"></span></p>
+                        <div class="code-pair">
+                            <div><h3 data-i18n="code.ir">IR</h3><div class="code-view" id="irView"></div></div>
+                            <div><h3 data-i18n="code.asm">RISC-V</h3><div class="code-view" id="asmView"></div></div>
+                        </div>
+                        <div class="row" style="margin-top:8px">
+                            <button type="button" class="btn outline" id="dlLl" data-i18n="exp.ll">Baixar IR (.ll)</button>
+                            <button type="button" class="btn outline" id="dlS" data-i18n="exp.s">Baixar assembly (.s)</button>
+                        </div>
+                    </div>
+
+                    <div class="pane" id="pane-frame">
+                        <div class="row">
+                            <label style="margin:0"><span data-i18n="frame.fn">Função</span> <select id="frameFn"></select></label>
+                            <button type="button" class="btn outline" id="frameSvg" data-i18n="exp.svg">Exportar figura (SVG)</button>
+                            <button type="button" class="btn outline" id="frameTex" data-i18n="exp.tex">Tabela em LaTeX</button>
+                        </div>
+                        <div class="fig-box" id="frameFig"></div>
+                    </div>
+
+                    <p class="note pending-msg hidden" id="pending" data-i18n="pending"></p>
+                </section>
+            </div>
+        </main>
+        <script type="module" src="js/app.js"></script>
+    </body>
+</html>
