@@ -1,0 +1,11 @@
+{
+  "name": "riscv-cc-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simulador didático de compilador: MiniC para IR no formato do LLVM e RISC-V",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}
