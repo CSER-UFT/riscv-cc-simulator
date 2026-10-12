@@ -2,8 +2,8 @@
  * Destaque de sintaxe (mesmas classes dos outros simuladores) para as três linguagens do compilador:
  * MiniC (o código fonte), a IR no formato do LLVM e o assembly RISC-V.
  */
-import { lookup, PSEUDO_INSTRUCTIONS } from '../vendor/riscv/isa.js';
-import { canonical } from '../vendor/riscv/registers.js';
+import { lookup, PSEUDO_INSTRUCTIONS } from '../vendor/cpu/riscv/isa.js';
+import { canonical } from '../vendor/cpu/riscv/registers.js';
 import { KEYWORDS } from '../cc/lexer.js';
 
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);

@@ -68,6 +68,7 @@
                         <button type="button" class="btn" data-tab="frame" data-i18n="tab.frame">Pilha</button>
                         <button type="button" class="btn" data-tab="cfg" data-i18n="tab.cfg">Fluxo de controle</button>
                         <button type="button" class="btn" data-tab="dfg" data-i18n="tab.dfg">Fluxo de dados</button>
+                        <button type="button" class="btn" data-tab="heat" data-i18n="tab.heat">Mapa de calor</button>
                     </div>
 
                     <div class="pane" id="pane-tokens">
@@ -152,6 +153,47 @@
                         <div class="graph-pair">
                             <div><h3 data-i18n="dfg.schedule">Escalonamento do bloco</h3><div class="scroll-box"><table id="dfgTable"></table></div></div>
                             <div><h3 data-i18n="du.title">Definições e usos na função</h3><div class="scroll-box"><table id="duTable"></table></div></div>
+                        </div>
+                    </div>
+
+                    <div class="pane" id="pane-heat">
+                        <p class="note" data-i18n="heat.note"></p>
+                        <div class="row">
+                            <label style="margin:0"><span data-i18n="heat.metric">Medida</span> <select id="heatMetric">
+                                <option value="static" data-i18n="heat.m.static"></option>
+                                <option value="irExec" data-i18n="heat.m.irExec"></option>
+                                <option value="asmExec" data-i18n="heat.m.asmExec"></option>
+                                <option value="cycles" data-i18n="heat.m.cycles"></option>
+                                <option value="stalls" data-i18n="heat.m.stalls"></option>
+                            </select></label>
+                            <label style="margin:0"><span data-i18n="heat.model">Processador</span> <select id="heatModel">
+                                <option value="single" data-i18n="heat.single"></option>
+                                <option value="pipeline" data-i18n="heat.pipeline"></option>
+                                <option value="dual" data-i18n="heat.dual"></option>
+                            </select></label>
+                            <label class="check" style="margin:0"><input type="checkbox" id="heatCache" /> <span data-i18n="heat.cache">Caches</span></label>
+                            <label class="check" style="margin:0"><input type="checkbox" id="heatLog" checked /> <span data-i18n="heat.log">Escala logarítmica</span></label>
+                        </div>
+                        <p class="note" id="heatSummary"></p>
+                        <div class="heat-scale note"><span data-i18n="heat.cold">frio</span><span class="heat-bar"></span><span data-i18n="heat.hot">quente</span></div>
+                        <div class="code-pair">
+                            <div><h3 id="heatIrTitle">IR</h3><div class="code-view heat" id="heatIr"></div></div>
+                            <div><h3 data-i18n="code.asm">RISC-V</h3><div class="code-view heat" id="heatAsm"></div></div>
+                        </div>
+                        <div class="graph-pair">
+                            <div><h3 data-i18n="heat.top">Linhas mais quentes do código fonte</h3><div class="scroll-box"><table id="heatTop"></table></div></div>
+                            <div>
+                                <h3 data-i18n="heat.blocks">Frequência estimada e medida dos blocos</h3>
+                                <label style="margin:0 0 6px"><span data-i18n="cfg.fn">Função</span> <select id="heatFn"></select></label>
+                                <div class="scroll-box"><table id="heatBlocks"></table></div>
+                            </div>
+                        </div>
+                        <div class="fig-box" id="heatCfg"></div>
+                        <div class="row" style="margin-top:8px">
+                            <button type="button" class="btn outline" id="heatSvgBtn" data-i18n="exp.heatSvg">CFG com calor (SVG)</button>
+                            <button type="button" class="btn outline" id="heatCsvSrc" data-i18n="exp.csvSrc">CSV por linha do fonte</button>
+                            <button type="button" class="btn outline" id="heatCsvAsm" data-i18n="exp.csvAsm">CSV por instrução RISC-V</button>
+                            <button type="button" class="btn outline" id="heatTex" data-i18n="exp.tex">Tabela em LaTeX</button>
                         </div>
                     </div>
 

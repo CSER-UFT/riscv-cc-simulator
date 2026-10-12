@@ -16,7 +16,8 @@ import { valueText } from './cc/irgen.js';
 import { layoutCfg, cfgSvg, domTreeSvg } from './ui/cfg-svg.js';
 import { layoutDfg, dfgSvg, shortText } from './ui/dfg-svg.js';
 import { cfgDot, domDot, dfgDot } from './ui/dot.js';
-import { tokensTex, symbolsTex, frameTex, domTex, dfgTex } from './ui/latex.js';
+import { tokensTex, symbolsTex, frameTex, domTex, dfgTex, blocksTex } from './ui/latex.js';
+import { blockFrequencies, blockCounts, simulateProfile } from './cc/profile.js';
 import { standaloneSvg } from './ui/svg-export.js';
 import { Help } from './ui/help.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
@@ -68,7 +69,9 @@ function refreshMarks() {
             const s = Math.max(0, mark.start - a), e = Math.min(l.length, mark.end - a);
             inner = `${esc(l.slice(0, s))}<span class="mk">${esc(l.slice(s, e)) || ' '}</span>${esc(l.slice(e))}`;
         }
-        return `<div class="ml${selection.src === i + 1 ? ' sel' : ''}">${inner || ' '}</div>`;
+        const h = tab === 'heat' && heatView ? heatView.srcI.get(i + 1) : undefined;
+        const style = h !== undefined && selection.src !== i + 1 ? ` style="${heatBg(h)}"` : '';
+        return `<div class="ml${selection.src === i + 1 ? ' sel' : ''}"${style}>${inner || ' '}</div>`;
     }).join('');
     $('marks').innerHTML = `<div class="code-inner">${html}</div>`;
     syncScroll();
@@ -185,6 +188,7 @@ function runCompile() {
     renderRun();
     renderCfg();
     renderDfg();
+    heatView = null;
     showTab(tab);
     renderSelection();
 }
@@ -615,8 +619,157 @@ $('irLevel').onchange = () => {
     renderFrames();
     renderCfg();
     renderDfg();
+    heatView = null;
+    if (tab === 'heat') renderHeat();
     select({ from: selection.src ? 'src' : null, src: selection.src });
 };
+
+// Mapa de calor ----------------------------------------------------------------------------------------------
+
+let heatView = null, heatFnChoice = null;
+const heatBg = (i) => `background: color-mix(in srgb, var(--heat) ${Math.round(4 + 76 * i)}%, transparent)`;
+const SUM_METRICS = new Set(['cycles', 'stalls']);
+const fmtNum = (v) => (Number.isInteger(v) ? v.toLocaleString(getLanguage() === 'en' ? 'en' : 'pt-BR') : v.toLocaleString(getLanguage() === 'en' ? 'en' : 'pt-BR', { maximumFractionDigits: v < 10 ? 2 : 1 }));
+
+/** Perfil do processador escolhido, guardado por nível de IR, modelo e caches. */
+function heatProfile() {
+    const key = `${level}|${$('heatModel').value}|${$('heatCache').checked}`;
+    last.heatProfiles ??= new Map();
+    if (!last.heatProfiles.has(key)) last.heatProfiles.set(key, simulateProfile(V().asm.text, { model: $('heatModel').value, caches: $('heatCache').checked }));
+    return last.heatProfiles.get(key);
+}
+
+/** Valor da medida para cada linha da IR, do assembly e do fonte, e para cada bloco. */
+function heatValues(metric, prof) {
+    const v = V();
+    const irL = v.ir.lines, asmL = v.asm.lines;
+    const sum = SUM_METRICS.has(metric);
+    const ir = new Float64Array(irL.length), asm = new Float64Array(asmL.length);
+    const interp = level === 'ssa' ? last.ssaInterp : last.interp;
+    if (metric === 'static' || metric === 'irExec') {
+        for (const F of v.module.functions) {
+            const freq = metric === 'static' ? blockFrequencies(F).freq : null;
+            for (const b of F.blocks) {
+                for (const i of b.insts) {
+                    if (i.irLine === undefined) continue;
+                    ir[i.irLine] = metric === 'static' ? freq.get(b.label) ?? 0 : interp.counts.get(i) ?? 0;
+                }
+            }
+        }
+        asmL.forEach((l, j) => { if (l.ir !== null) asm[j] = ir[l.ir]; });
+    } else {
+        prof.program.instructions.forEach((inst, k) => {
+            const p = prof.per[k];
+            const x = metric === 'asmExec' ? p.exec : metric === 'cycles' ? p.cycles : p.stalls;
+            const j = inst.line - 1;
+            asm[j] = metric === 'asmExec' ? Math.max(asm[j], x) : asm[j] + x;
+        });
+        asmL.forEach((l, j) => {
+            for (const i of [l.ir, l.ir2]) if (i !== null && i !== undefined) ir[i] = sum ? ir[i] + asm[j] : Math.max(ir[i], asm[j]);
+        });
+    }
+    // Linhas do fonte: soma (ciclos) pelas instruções RISC-V, ou o máximo (execuções) pela IR.
+    const src = new Map();
+    const add = (line, x) => { if (!line) return; src.set(line, sum ? (src.get(line) ?? 0) + x : Math.max(src.get(line) ?? 0, x)); };
+    if (sum) asmL.forEach((l, j) => { if (!l.isSrc) add(l.src, asm[j]); });
+    else irL.forEach((l, i) => add(l.src, ir[i]));
+    const blocks = new Map();
+    for (const F of v.module.functions) {
+        const m = new Map();
+        for (const b of F.blocks) {
+            const vals = b.insts.filter((i) => i.irLine !== undefined).map((i) => ir[i.irLine]);
+            m.set(b.label, sum ? vals.reduce((s2, x) => s2 + x, 0) : Math.max(0, ...vals));
+        }
+        blocks.set(F.name, m);
+    }
+    return { ir, asm, src, blocks, sum };
+}
+
+function renderHeat() {
+    if (!last || last.phase !== 'done') return;
+    const metric = $('heatMetric').value;
+    const simBased = !['static', 'irExec'].includes(metric);
+    const prof = heatProfile();
+    const vals = heatValues(metric, prof);
+    const log = $('heatLog').checked;
+    const all = [...vals.ir, ...vals.asm, ...vals.src.values()];
+    const max = Math.max(1e-9, ...all);
+    const inten = (x) => (x <= 0 ? 0 : log ? Math.log1p(x) / Math.log1p(max) : x / max);
+    const srcI = new Map([...vals.src].map(([l, x]) => [l, inten(x)]));
+    heatView = { metric, vals, srcI, prof, inten };
+
+    // Resumo da simulação no processador escolhido.
+    if (prof.errors?.length) $('heatSummary').textContent = prof.errors.map((e) => e.message).join('; ');
+    else {
+        const st = prof.stats;
+        let txt = t('heat.summary', {
+            model: t(`heat.${prof.model}`), cycles: fmtNum(prof.cycles), inst: fmtNum(prof.instructions), cpi: (prof.cycles / Math.max(1, prof.instructions)).toFixed(2),
+            dstall: fmtNum(st.dataStalls ?? 0), sstall: fmtNum(st.structStalls ?? 0), mis: fmtNum(st.mispredicts ?? 0), br: fmtNum(st.branches ?? 0), sq: fmtNum(prof.squashed),
+        });
+        const l1d = st.memory?.levels?.L1D;
+        if (l1d && (l1d.hits !== undefined)) txt += t('heat.summaryCache', { hits: fmtNum(l1d.hits), misses: fmtNum(l1d.misses) });
+        if (!prof.finished) txt += ` ${t('heat.limit', { n: fmtNum(100000) })}`;
+        $('heatSummary').textContent = txt;
+    }
+    $('heatModel').disabled = !simBased && metric !== 'cycles';
+    $('heatIrTitle').textContent = t(level === 'ssa' ? 'code.irSsa' : 'code.ir');
+
+    const unit = (x) => (x ? fmtNum(Math.round(x * 100) / 100) : '');
+    const view = (text, arr, fn) => text.replace(/\n$/, '').split('\n').map((l, i) => {
+        const x = arr[i] ?? 0;
+        return `<div class="cl" data-i="${i}"${x > 0 ? ` style="${heatBg(inten(x))}"` : ''}><span class="ln">${i + 1}</span><span class="hv">${unit(x)}</span><span class="tx">${fn(l) || ' '}</span></div>`;
+    }).join('');
+    const v = V();
+    $('heatIr').innerHTML = view(v.ir.text, vals.ir, irLine);
+    $('heatAsm').innerHTML = view(v.asm.text, vals.asm, asmLine);
+
+    // Linhas mais quentes.
+    const lines = code.value.split('\n');
+    const total = [...vals.src.values()].reduce((a, b) => a + b, 0);
+    const top = [...vals.src].filter(([, x]) => x > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    $('heatTop').innerHTML = `<tr><th>${t('th.srcLine')}</th><th>${t('th.code')}</th><th>${t(`heat.m.${metric}`)}</th>${vals.sum ? `<th>${t('th.share')}</th>` : ''}</tr>`
+        + top.map(([l, x]) => `<tr data-line="${l}" style="${heatBg(inten(x))}"><td>${l}</td><td class="mono left">${esc((lines[l - 1] ?? '').trim())}</td><td>${unit(x)}</td>${vals.sum ? `<td>${(100 * x / Math.max(1, total)).toFixed(1)}%</td>` : ''}</tr>`).join('');
+
+    // Blocos de uma função: estimado e medido.
+    const fns = v.module.functions;
+    const sel = $('heatFn');
+    sel.innerHTML = fns.map((F) => `<option value="${esc(F.name)}">${esc(F.name)}</option>`).join('');
+    sel.value = fns.some((F) => F.name === heatFnChoice) ? heatFnChoice : defaultFn(fns);
+    const F = fns.find((x) => x.name === sel.value);
+    const cfg = analyzeCfg(F);
+    const { freq } = blockFrequencies(F, cfg);
+    const interp = level === 'ssa' ? last.ssaInterp : last.interp;
+    const cnt = blockCounts(F, interp.counts);
+    const calls = cnt.get(F.blocks[0].label) || 0;
+    const cyc = heatValues('cycles', prof).blocks.get(F.name);
+    heatView.blockRows = cfg.rpo.map((b) => ({ b, est: freq.get(b), meas: calls ? cnt.get(b) / calls : 0, execs: cnt.get(b), cycles: cyc.get(b) }));
+    $('heatBlocks').innerHTML = `<tr><th>${t('th.block')}</th><th>${t('th.est')}</th><th>${t('th.meas')}</th><th>${t('th.execs')}</th><th>${t('th.cycles')}</th></tr>`
+        + heatView.blockRows.map((r) => `<tr><td class="mono left">${esc(r.b)}</td><td>${fmtNum(Math.round(r.est * 100) / 100)}</td><td>${calls ? fmtNum(Math.round(r.meas * 100) / 100) : t('heat.notRun')}</td><td>${fmtNum(r.execs)}</td><td>${fmtNum(r.cycles)}</td></tr>`).join('')
+        + `<tr><td colspan="5" class="note left">${t('heat.calls', { fn: esc(F.name), n: calls })}</td></tr>`;
+
+    // CFG colorido pela medida.
+    const bv = vals.blocks.get(F.name);
+    const texts = new Map([...bv].map(([b, x]) => [b, metric === 'static' || metric.endsWith('Exec') ? t(metric === 'static' ? 'heat.unit.static' : 'heat.unit.exec', { v: unit(x) || 0 }) : t(`heat.unit.${metric}`, { v: unit(x) || 0 })]));
+    const heat = new Map([...bv].map(([b, x]) => [b, { i: inten(x), text: texts.get(b) }]));
+    heatView.F = F;
+    $('heatCfg').innerHTML = cfgSvg(layoutCfg(F, cfg, false, t, texts), cfg, { tr: t, heat });
+    refreshMarks();
+}
+for (const id of ['heatMetric', 'heatModel', 'heatCache', 'heatLog']) $(id).addEventListener('change', () => { store.set(`cc.${id}`, $(id).type === 'checkbox' ? ($(id).checked ? '1' : '0') : $(id).value); renderHeat(); });
+for (const id of ['heatMetric', 'heatModel']) { const v = store.get(`cc.${id}`); if (v && [...$(id).options].some((o) => o.value === v)) $(id).value = v; }
+if (!store.get('cc.heatMetric')) $('heatMetric').value = 'cycles';
+if (!store.get('cc.heatModel')) $('heatModel').value = 'pipeline';
+for (const id of ['heatCache', 'heatLog']) { const v = store.get(`cc.${id}`); if (v) $(id).checked = v === '1'; }
+$('heatFn').onchange = () => { heatFnChoice = $('heatFn').value; renderHeat(); };
+$('heatTop').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-line]'); if (tr) goToLine(+tr.dataset.line); });
+for (const [id, kind] of [['heatIr', 'ir'], ['heatAsm', 'asm']]) {
+    $(id).addEventListener('click', (e) => {
+        const row = e.target.closest('.cl');
+        if (!row) return;
+        const src = (kind === 'ir' ? V().ir.lines : V().asm.lines)[+row.dataset.i]?.src;
+        if (src) goToLine(src);
+    });
+}
 
 // Abas -------------------------------------------------------------------------------------------------------
 
@@ -639,6 +792,7 @@ function showTab(name) {
     for (const p of document.querySelectorAll('.pane')) p.classList.toggle('hidden', !ok || p.id !== `pane-${name}`);
     $('pending').classList.toggle('hidden', ok);
     mark = null;
+    if (ok && name === 'heat' && !heatView) renderHeat();
     if (ok && steppers[name]) steppers[name].show(steppers[name].cur);
     else refreshMarks();
 }
@@ -675,6 +829,30 @@ const dfgName = () => `${dfgView?.F.name}-${dfgView?.g.label}-dfg${lvlSuffix()}`
 $('dfgSvgBtn').onclick = () => { const s = svgOf('dfgFig'); if (s) download(`${dfgName()}.svg`, standaloneSvg(s), 'image/svg+xml'); };
 $('dfgDotBtn').onclick = () => dfgView && download(`${dfgName()}.dot`, dfgDot(dfgView.F, dfgView.g), 'text/vnd.graphviz');
 $('dfgTexBtn').onclick = () => dfgView && download(`${dfgName()}.tex`, dfgTex(dfgView.F, dfgView.g), 'application/x-tex');
+$('heatSvgBtn').onclick = () => { const s2 = svgOf('heatCfg'); if (s2 && heatView) download(`${heatView.F.name}-${getLanguage() === 'en' ? 'heat' : 'calor'}-${heatView.metric}.svg`, standaloneSvg(s2), 'image/svg+xml'); };
+const csv = (rows) => rows.map((r) => r.map((x) => (typeof x === 'string' && /[",\n;]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x)).join(',')).join('\n') + '\n';
+$('heatCsvSrc').onclick = () => {
+    if (!heatView) return;
+    const prof = heatView.prof;
+    const m = Object.fromEntries(['static', 'irExec', 'asmExec', 'cycles', 'stalls'].map((k) => [k, heatValues(k, prof).src]));
+    const lines = code.value.split('\n');
+    const rows = [['line', 'source', 'static_frequency', 'ir_executions', 'riscv_executions', 'cycles', 'stall_cycles']];
+    lines.forEach((l, i) => rows.push([i + 1, l.trim(), ...['static', 'irExec', 'asmExec', 'cycles', 'stalls'].map((k) => +(m[k].get(i + 1) ?? 0).toFixed(4))]));
+    download(`${baseName()}${lvlSuffix()}-${prof.model}-source.csv`, csv(rows), 'text/csv');
+};
+$('heatCsvAsm').onclick = () => {
+    if (!heatView) return;
+    const prof = heatView.prof, v = V();
+    const irText = v.ir.text.split('\n');
+    const rows = [['index', 'pc', 'asm_line', 'instruction', 'source_line', 'ir', 'executions', 'cycles', 'stall_cycles', 'squashed']];
+    prof.program.instructions.forEach((inst, k) => {
+        const l = v.asm.lines[inst.line - 1];
+        const p = prof.per[k];
+        rows.push([k, `0x${inst.pc.toString(16)}`, inst.line, inst.text, l?.src ?? '', l?.ir !== null && l?.ir !== undefined ? irText[l.ir].trim() : '', p.exec, p.cycles, p.stalls, p.squashed]);
+    });
+    download(`${baseName()}${lvlSuffix()}-${prof.model}-riscv.csv`, csv(rows), 'text/csv');
+};
+$('heatTex').onclick = () => { if (heatView?.blockRows) download(`${heatView.F.name}-${getLanguage() === 'en' ? 'blocks' : 'blocos'}.tex`, blocksTex(heatView.F, heatView.blockRows), 'application/x-tex'); };
 $('frameSvg').onclick = () => {
     const svg = $('frameFig').querySelector('svg');
     if (svg) download(`${$('frameFn').value}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.svg`, standaloneSvg(svg), 'image/svg+xml');

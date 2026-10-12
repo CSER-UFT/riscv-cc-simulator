@@ -16,7 +16,7 @@ const arrow = (x, y, dir, cls) => {
 };
 
 /** Posição de cada bloco no desenho. */
-export function layoutCfg(F, cfg, showInsts, tr) {
+export function layoutCfg(F, cfg, showInsts, tr, extra = null) {
     const back = new Set(cfg.backEdges.map((e) => `${e.from}>${e.to}`));
     const fwdPreds = (b) => cfg.pred.get(b).filter((p) => !back.has(`${p}>${b}`));
     const layer = new Map();
@@ -41,7 +41,8 @@ export function layoutCfg(F, cfg, showInsts, tr) {
         if (cfg.loops.some((l) => l.header === b.label)) tags.push(tr('cfg.header'));
         if (!cfg.succ.get(b.label).length) tags.push(tr('cfg.exit'));
         const tagText = tags.join(', ');
-        const w = Math.max((b.label.length + 1) * CH + (tagText ? tagText.length * 6 + 16 : 0) + 18, ...lines.map((l) => l.length * CH + 18));
+        const side = Math.max(tagText.length, extra?.get(b.label)?.length ?? 0);
+        const w = Math.max((b.label.length + 1) * CH + (side ? side * 6.2 + 16 : 0) + 18, ...lines.map((l) => l.length * CH + 18));
         boxes.set(b.label, { label: b.label, lines, tagText, w: Math.max(80, w), h: HEAD + lines.length * LINE + (lines.length ? 6 : 0), layer: layer.get(b.label) });
     }
     const nLayers = Math.max(...[...layer.values()]) + 1;
@@ -86,7 +87,7 @@ export function layoutCfg(F, cfg, showInsts, tr) {
  * @param {object} cfg saída de analyzeCfg
  * @param {{selected?: string|null, tr: Function}} opts
  */
-export function cfgSvg(layout, cfg, { selected = null, tr }) {
+export function cfgSvg(layout, cfg, { selected = null, tr, heat = null }) {
     const { boxes, width, height, back, backRoutes, longEdges } = layout;
     const isLong = new Set(longEdges.map((e) => `${e.from}>${e.to}`));
     const minLeft = Math.min(...[...boxes.values()].map((b) => b.x - b.w / 2));
@@ -130,9 +131,13 @@ export function cfgSvg(layout, cfg, { selected = null, tr }) {
         const d = cfg.depth.get(bx.label);
         const cls = ['blk', `depth${Math.min(d, 3)}`, bx.label === selected ? 'sel' : '', doms.has(bx.label) && bx.label !== selected ? 'dom' : '', df.has(bx.label) ? 'df' : ''].filter(Boolean).join(' ');
         const x0 = bx.x - bx.w / 2;
-        s += `<g class="node" data-block="${esc(bx.label)}"><rect class="${cls}" x="${x0}" y="${bx.y}" width="${bx.w}" height="${bx.h}" rx="5"/>`;
+        // No mapa de calor, a cor do bloco vem da intensidade (0 a 1) e o valor substitui as etiquetas.
+        const h = heat?.get(bx.label);
+        const style = h ? ` style="fill: color-mix(in srgb, var(--heat) ${Math.round(6 + 80 * h.i)}%, var(--panel))"` : '';
+        s += `<g class="node" data-block="${esc(bx.label)}"><rect class="${cls}${h ? ' heat' : ''}" x="${x0}" y="${bx.y}" width="${bx.w}" height="${bx.h}" rx="5"${style}/>`;
         s += `<text class="mono bold" x="${x0 + 8}" y="${bx.y + 16}">${esc(bx.label)}:</text>`;
-        if (bx.tagText) s += `<text class="small muted" x="${x0 + bx.w - 8}" y="${bx.y + 16}" text-anchor="end">${esc(bx.tagText)}</text>`;
+        if (h) s += `<text class="small bold" x="${x0 + bx.w - 8}" y="${bx.y + 16}" text-anchor="end">${esc(h.text)}</text>`;
+        else if (bx.tagText) s += `<text class="small muted" x="${x0 + bx.w - 8}" y="${bx.y + 16}" text-anchor="end">${esc(bx.tagText)}</text>`;
         bx.lines.forEach((l, k) => { s += `<text class="mono small" x="${x0 + 8}" y="${bx.y + HEAD + 10 + k * LINE}" xml:space="preserve">${esc(l)}</text>`; });
         s += '</g>';
     }

@@ -1,10 +1,10 @@
 /**
  * Monta o assembly gerado e executa no simulador funcional de referência (o mesmo do simulador de processadores).
  */
-import { assemble } from '../vendor/riscv/parser.js';
-import { runReference } from '../vendor/riscv/machine.js';
-import { readRaw } from '../vendor/riscv/memory.js';
-import { bitsToF32 } from '../vendor/riscv/bits.js';
+import { assemble } from '../vendor/cpu/riscv/parser.js';
+import { runReference } from '../vendor/cpu/riscv/machine.js';
+import { readRaw } from '../vendor/cpu/riscv/memory.js';
+import { bitsToF32 } from '../vendor/cpu/riscv/bits.js';
 
 /**
  * @param {object} compiled saída de compile()

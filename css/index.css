@@ -769,3 +769,15 @@ label.check { display: inline-flex; align-items: center; gap: 4px; }
 #cfgTable td, #duTable td { vertical-align: top; }
 #loopList ul { margin: 4px 0; padding-left: 20px; }
 .legend-line { margin-top: 6px; }
+
+/* Mapa de calor */
+:root, [data-theme='light'] { --heat: #e8590c; }
+[data-theme='dark'] { --heat: #ff7a2e; }
+.code-view.heat .hv { flex: 0 0 64px; text-align: right; padding-right: 10px; color: var(--muted); font-size: 12px; }
+.heat-scale { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.heat-bar { display: inline-block; width: 160px; height: 10px; border-radius: 3px; border: 1px solid var(--line);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--heat) 4%, var(--panel)), color-mix(in srgb, var(--heat) 80%, var(--panel))); }
+#heatTop tr[data-line] { cursor: pointer; }
+#heatBlocks td, #heatTop td { white-space: nowrap; }
+.fig-svg .blk.heat { stroke: var(--line-strong); }
+#pane-heat .fig-box { margin-top: 12px; }

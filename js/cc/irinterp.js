@@ -5,7 +5,7 @@
  * As operações inteiras seguem o RISC-V nos casos que o C deixa indefinidos (divisão por zero, deslocamento
  * maior que 31, conversão de float fora da faixa), para que o resultado seja comparável com o do processador.
  */
-import { DATA_BASE, STACK_TOP } from '../vendor/riscv/parser.js';
+import { DATA_BASE, STACK_TOP } from '../vendor/cpu/riscv/parser.js';
 
 const INT_MIN = -2147483648;
 const f32 = new Float32Array(1);

@@ -187,6 +187,20 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
 <p>A tabela de definições e usos lista, para cada valor da função, onde ele é definido e onde é usado (para uma <code>phi</code>, também de qual bloco o valor vem).</p>`,
         },
         {
+            id: 'heat',
+            title: 'Mapa de calor',
+            html: `
+<p>A aba <strong>Mapa de calor</strong> mostra onde o programa passa o tempo, colorindo o código fonte (no editor), a IR, o assembly e o grafo de fluxo de controle. A <strong>Medida</strong> escolhe a cor:</p>
+<dl>
+    <dt>Frequência estimada (estática)</dt><dd>Quantas vezes cada bloco deve executar por chamada da função, sem rodar o programa, como a análise BlockFrequencyInfo do LLVM. Cada desvio recebe uma probabilidade: num laço, 31/32 para continuar e 1/32 para sair (a heurística de laço do LLVM, que supõe cerca de 32 voltas); nos demais desvios, metade para cada lado. As frequências resolvem o sistema em que a frequência de um bloco é a soma, sobre os predecessores, da frequência de cada um vezes a probabilidade da aresta.</dd>
+    <dt>Execuções da IR e execuções RISC-V</dt><dd>Quantas vezes cada instrução executou de fato, no interpretador da IR e no processador.</dd>
+    <dt>Ciclos</dt><dd>Os ciclos que cada instrução custou no processador escolhido (monociclo, pipeline de 5 estágios ou emissão dupla, com as configurações padrão do simulador de processadores e, se marcado, as caches). Cada instrução fica com os ciclos desde a conclusão da anterior: a soma dá o total, e as bolhas, as faltas na cache e os desvios mal previstos aparecem na instrução que os sofreu.</dd>
+    <dt>Ciclos de bolha</dt><dd>Os ciclos em que a instrução ficou parada esperando um operando ou um recurso.</dd>
+</dl>
+<p>A tabela de blocos compara a frequência estimada com a medida, por chamada. A diferença mostra o limite das heurísticas: nos laços curtos da multiplicação de matrizes, de 3 voltas, a estimativa supõe 32. É por isso que compiladores aceitam um perfil de execução real (otimização guiada por perfil, PGO).</p>
+<p>A escala logarítmica ajuda quando os valores variam muito. Os botões de CSV trazem os números por linha do fonte e por instrução RISC-V, para análise em planilha ou Python.</p>`,
+        },
+        {
             id: 'cpu',
             title: 'Execução e simulador de processadores',
             html: `

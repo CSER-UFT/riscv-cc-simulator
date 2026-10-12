@@ -15,6 +15,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 * **mem2reg**: a mesma IR na forma SSA, como `opt -passes=mem2reg` (phi na fronteira de dominância iterada, podada pela vivacidade, com os nomes `%i.0` do LLVM), com o assembly gerado a partir dela e a comparação das duas versões na execução.
 * **Fluxo de controle**: grafo de fluxo de controle em camadas, árvore de dominadores, fronteira de dominância e laços naturais com a profundidade de aninhamento; um clique num bloco destaca os seus dominadores e a sua fronteira.
 * **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; cadeias de definição e uso da função.
+* **Mapa de calor** no código fonte, na IR, no assembly e no CFG: frequência estimada dos blocos (como a BlockFrequencyInfo do LLVM), execuções medidas e ciclos e bolhas de cada instrução no monociclo, no pipeline ou na emissão dupla do simulador de processadores, com ou sem caches; comparação entre a frequência estimada e a medida e exportação em CSV.
 * **Registro de ativação** de cada função em SVG, com os deslocamentos em relação a `s0` e a `sp`.
 * **Execução** do assembly no mesmo simulador funcional do riscv-cpu-simulator (valor de retorno de `main`, instruções executadas, variáveis globais) e botão para abrir o código gerado no simulador de processadores, no modelo com pipeline.
 * Exportações: figuras em SVG independentes, grafos no formato DOT do Graphviz (como `opt -passes=dot-cfg`), tabelas em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), IR (`.ll`) e assembly (`.s`).
@@ -36,12 +37,12 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 | `js/cc/mem2reg.js` | promoção das variáveis para valores SSA (mem2reg) |
 | `js/cc/cfg.js` | CFG, ordem pós-fixa reversa, dominadores (Cooper, Harvey e Kennedy), fronteira de dominância, laços naturais |
 | `js/cc/dfg.js` | grafo de fluxo de dados por bloco, dependências de memória, ASAP, ALAP e caminho crítico; definições e usos |
+| `js/cc/profile.js` | frequência estimada dos blocos, perfil por instrução no simulador de processadores |
 | `js/cc/irinterp.js` | interpretador da IR, usado como oráculo |
-| `js/vendor/riscv/` | montador e simulador funcional copiados do riscv-cpu-simulator |
+| `js/vendor/cpu/` | montador, simulador funcional e modelos de processador copiados do riscv-cpu-simulator |
 
 ## Próximas etapas previstas
 
-* Mapa de calor estático e dinâmico do código.
 * Otimizações clássicas e aproximadas, com a relação entre erro e ganho.
 * Alocação de registradores, escalonamento para o processador com despacho duplo e escalonamento no estilo da síntese de alto nível.
 

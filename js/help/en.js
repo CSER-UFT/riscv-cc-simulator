@@ -186,6 +186,20 @@ addi s0, sp, 32      # s0 points to the top of the frame</code></pre>
 <p>The definitions and uses table lists, for each value of the function, where it is defined and where it is used (for a <code>phi</code>, also which block the value comes from).</p>`,
         },
         {
+            id: 'heat',
+            title: 'Heat map',
+            html: `
+<p>The <strong>Heat map</strong> tab shows where the program spends its time, coloring the source code (in the editor), the IR, the assembly and the control flow graph. The <strong>Measure</strong> chooses the color:</p>
+<dl>
+    <dt>Estimated frequency (static)</dt><dd>How many times each block should run per call of the function, without running the program, like LLVM BlockFrequencyInfo. Each branch gets a probability: in a loop, 31/32 to stay and 1/32 to leave (the LLVM loop heuristic, which assumes about 32 iterations); on other branches, half each way. The frequencies solve the system in which the frequency of a block is the sum, over its predecessors, of each one's frequency times the edge probability.</dd>
+    <dt>IR executions and RISC-V executions</dt><dd>How many times each instruction actually ran, in the IR interpreter and on the processor.</dd>
+    <dt>Cycles</dt><dd>The cycles each instruction cost on the chosen processor (single cycle, 5 stage pipeline or dual issue, with the processor simulator default settings and, if checked, the caches). Each instruction gets the cycles since the previous one completed: the sum is the total, and stalls, cache misses and mispredicted branches show up on the instruction that suffered them.</dd>
+    <dt>Stall cycles</dt><dd>The cycles in which the instruction was stopped waiting for an operand or a resource.</dd>
+</dl>
+<p>The block table compares the estimated frequency with the measured one, per call. The difference shows the limit of heuristics: in the short loops of the matrix multiplication, of 3 iterations, the estimate assumes 32. That is why compilers accept a real execution profile (profile guided optimization, PGO).</p>
+<p>The log scale helps when values vary a lot. The CSV buttons give the numbers per source line and per RISC-V instruction, for analysis in a spreadsheet or in Python.</p>`,
+        },
+        {
             id: 'cpu',
             title: 'Execution and the processor simulator',
             html: `

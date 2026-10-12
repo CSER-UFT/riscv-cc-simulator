@@ -39,3 +39,9 @@ export function dfgTex(F, g) {
     const rows = g.nodes.map((n) => [n.id, tt(n.text), t(`cls.${n.cls}`), n.lat, n.start, n.alap, n.slack === 0 ? '\\textbf{0}' : n.slack]);
     return table(['\\#', t('th.inst'), t('th.cls'), t('th.lat'), t('th.asap'), t('th.alap'), t('th.slack')], rows, t('tex.dfg', { b: texEsc(g.label), fn: texEsc(F.name), n: g.length }));
 }
+
+export function blocksTex(F, rows) {
+    const n = (x) => (Number.isInteger(x) ? x : x.toFixed(2));
+    return table([t('th.block'), t('th.est'), t('th.meas'), t('th.execs'), t('th.cycles')],
+        rows.map((r) => [tt(r.b), n(r.est), n(r.meas), r.execs, r.cycles]), t('tex.blocks', { fn: texEsc(F.name) }));
+}
