@@ -67,14 +67,41 @@ function escapedAllocas(F, def) {
  * DFG de um bloco.
  * @returns {{nodes: Array, inputs: Array, edges: Array, length: number, seqSum: number}}
  */
-export function blockDfg(F, label, lat = LATENCY) {
+export function blockDfg(F, label, lat = LATENCY, { opsOnly = false } = {}) {
     const b = F.blocks.find((x) => x.label === label);
     const def = definitions(F);
     const { escaped, root } = escapedAllocas(F, def);
-    const insts = b.insts.filter((i) => i.op !== 'alloca');
+    let insts = b.insts.filter((i) => i.op !== 'alloca');
+    // Só as operações: sem load, store e cálculo de endereço. O valor lido vira uma entrada do bloco, o valor
+    // guardado fica marcado como saída para a memória, e somem as instruções que só serviam aos endereços.
+    const fromMem = new Set(), toMem = new Set();
+    if (opsOnly) {
+        const removed = new Set(insts.filter((i) => ['load', 'store', 'gep'].includes(i.op)));
+        for (const i of removed) {
+            if (i.op === 'load') fromMem.add(i.dst);
+            if (i.op === 'store' && i.val && (i.val.vk === 'temp' || i.val.vk === 'arg')) toMem.add(i.val);
+        }
+        const usesOf = new Map();
+        for (const bb of F.blocks) for (const i of bb.insts) {
+            const ops = i.op === 'phi' ? i.incoming.map(([v]) => v) : instOperands(i);
+            for (const v of ops) { if (!usesOf.has(v)) usesOf.set(v, []); usesOf.get(v).push(i); }
+        }
+        // Remove, até estabilizar, o que só serve para endereços: usado por instruções removidas ou, em outro
+        // bloco, como índice ou base de um getelementptr ou endereço de um load ou store (não o valor guardado).
+        const addrUse = (u, v) => removed.has(u) || u.op === 'gep' || u.op === 'load' || (u.op === 'store' && u.val !== v);
+        for (let changed = true; changed;) {
+            changed = false;
+            for (const i of insts) {
+                if (removed.has(i) || !i.dst || ['call', 'phi'].includes(i.op) || toMem.has(i.dst)) continue;
+                const us = usesOf.get(i.dst) ?? [];
+                if (us.length && us.every((u) => addrUse(u, i.dst))) { removed.add(i); changed = true; }
+            }
+        }
+        insts = insts.filter((i) => !removed.has(i));
+    }
     const nodes = insts.map((inst, k) => {
         const cls = opClass(inst.op);
-        return { id: k, inst, cls, lat: lat[cls] ?? 1, text: instText(inst), preds: [], succs: [] };
+        return { id: k, inst, cls, lat: lat[cls] ?? LATENCY[cls] ?? 1, text: instText(inst), preds: [], succs: [], toMem: !!inst.dst && toMem.has(inst.dst) };
     });
     const local = new Map();
     nodes.forEach((n) => { if (n.inst.dst) local.set(n.inst.dst, n.id); });
@@ -92,7 +119,7 @@ export function blockDfg(F, label, lat = LATENCY) {
             if (!v || (v.vk !== 'temp' && v.vk !== 'arg') || allocas.has(v)) continue;
             if (n.inst.op !== 'phi' && local.has(v) && local.get(v) < n.id) addEdge(local.get(v), n.id, 'data');
             else {
-                if (!inputIdx.has(v)) { inputIdx.set(v, inputs.length); inputs.push({ value: v, text: valueText(v), to: [] }); }
+                if (!inputIdx.has(v)) { inputIdx.set(v, inputs.length); inputs.push({ value: v, text: fromMem.has(v) ? `${valueText(v)} (load)` : valueText(v), fromMem: fromMem.has(v), to: [] }); }
                 const inp = inputs[inputIdx.get(v)];
                 if (!inp.to.includes(n.id)) inp.to.push(n.id);
             }

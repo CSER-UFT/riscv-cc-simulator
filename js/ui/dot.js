@@ -43,6 +43,9 @@ export function dfgDot(F, g) {
         const style = n.critical ? ',color="#c0392b",penwidth=2' : '';
         out.push(`\tN${n.id} [shape=box${style},label=${q(`${instText(n.inst)}\\n[${n.start}, ${n.start + n.lat})`)}];`);
     }
+    // Valores guardados na memória quando os stores foram retirados do grafo.
+    const outs = g.nodes.filter((n) => n.toMem);
+    if (outs.length) out.push('\tMem [shape=ellipse,label="mem"];', ...outs.map((n) => `\tN${n.id} -> Mem [style=dotted];`));
     for (const e of g.edges) {
         const st = [e.kind === 'mem' ? 'style=dashed' : '', e.critical ? 'color="#c0392b",penwidth=2' : ''].filter(Boolean).join(',');
         out.push(`\tN${e.from} -> N${e.to}${st ? ` [${st}]` : ''};`);

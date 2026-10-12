@@ -95,3 +95,37 @@ test('escalonamento com recursos limitados (HLS)', async () => {
         }
     }
 });
+
+test('DFG só com as operações e com latências escolhidas', async () => {
+    const { LATENCY } = await import('../js/cc/dfg.js');
+    const src = `int img[36]; int gx[36];
+int main() {
+    for (int c = 7; c < 29; c++) {
+        int n = c - 6;
+        int s = c + 6;
+        int g = img[n + 1] - img[n - 1] + (img[c + 1] << 1) - (img[c - 1] << 1) + img[s + 1] - img[s - 1];
+        gx[c] = g;
+    }
+    return 0;
+}`;
+    for (const ssa of [false, true]) {
+        const r = compile(src);
+        const F = (ssa ? r.ssa.module : r.module).functions[0];
+        const body = F.blocks.find((b) => b.label === 'for.body');
+        const all = blockDfg(F, body.label);
+        const ops = blockDfg(F, body.label, LATENCY, { opsOnly: true });
+        const opsOf = (g) => g.nodes.map((n) => n.inst.op);
+        assert.ok(opsOf(all).includes('load') && opsOf(all).includes('gep'));
+        assert.ok(!opsOf(ops).some((o) => ['load', 'store', 'gep'].includes(o)), opsOf(ops).join(','));
+        // Na SSA ficam as 5 somas e subtrações e os 2 deslocamentos; no -O0 também n e s, guardados nas suas
+        // variáveis na memória. Os 6 valores lidos da imagem viram entradas.
+        assert.equal(ops.nodes.filter((n) => ['add', 'sub', 'shl'].includes(n.inst.op)).length, ssa ? 7 : 9, opsOf(ops).join(','));
+        assert.ok(ops.inputs.filter((i) => i.fromMem).length >= 6);
+        assert.equal(ops.nodes.filter((n) => n.toMem).length, ssa ? 1 : 3);
+        assert.equal(ops.edges.filter((e) => e.kind === 'mem').length, 0);
+        // Latência de soma 3: o caminho crítico (cadeia de 5 somas depois do deslocamento) cresce.
+        const slow = blockDfg(F, body.label, { ...LATENCY, alu: 3 }, { opsOnly: true });
+        assert.ok(slow.length > ops.length);
+        assert.ok(slow.nodes.every((n) => n.lat === ({ ...LATENCY, alu: 3 })[n.cls]));
+    }
+});

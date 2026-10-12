@@ -372,4 +372,10 @@ export default {
     'ra.cross': "Crosses a call",
     'ra.spilled': "stack (spill)",
     'ra.yes': "yes",
+    'dfg.opsOnly': "Operations only (no memory accesses)",
+    'dfg.opsOnlyHelp': "Removes load, store and getelementptr, and the address arithmetic that only served them: the value read becomes an input (load) and the value stored is marked with → mem",
+    'dfg.latTitle': "Latencies (cycles):",
+    'dfg.latReset': "Default",
+    'dfg.latDefault': "Default latencies, the ones of the processor simulator.",
+    'dfg.latChanged': "Changed latencies: {list}. Scheduling and the critical path use these values; the assembly and the heat map keep the processor simulator ones.",
 };

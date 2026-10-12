@@ -622,7 +622,7 @@ function renderDfg() {
     // Sem escolha, o bloco mais aninhado em laços, e entre eles o de mais instruções.
     const best = [...F.blocks].sort((a, b) => (cfg.depth.get(b.label) - cfg.depth.get(a.label)) || (b.insts.length - a.insts.length))[0].label;
     bsel.value = F.blocks.some((b) => b.label === dfgBlockChoice) ? dfgBlockChoice : best;
-    const g = blockDfg(F, bsel.value);
+    const g = blockDfg(F, bsel.value, dfgLatency(), { opsOnly: $('dfgOps').checked });
     if (dfgSel !== null && dfgSel >= g.nodes.length) dfgSel = null;
     // Escalonamento mostrado: ASAP, ALAP ou por lista com recursos limitados (estilo HLS).
     const mode = $('dfgSched').value;
@@ -635,7 +635,8 @@ function renderDfg() {
     }
     dfgView = { F, g, shown, summary, layout: layoutDfg(shown, (summary ?? t('dfg.summary', { len: g.length, sum: g.seqSum, ilp: '0.00' })).length) };
     drawDfg();
-    $('dfgLat').innerHTML = `${t('dfg.latencies')} ${Object.entries(LATENCY).map(([k, v]) => `${esc(t(`cls.${k}`))} ${v}`).join('; ')}.`;
+    const changed = LAT_CLASSES.filter((k) => dfgLatency()[k] !== LATENCY[k]);
+    $('dfgLat').textContent = changed.length ? t('dfg.latChanged', { list: changed.map((k) => `${t(`cls.${k}`)} ${LATENCY[k]} → ${dfgLatency()[k]}`).join('; ') }) : t('dfg.latDefault');
     const isList = mode === 'list';
     $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th>${isList ? `<th>${t('th.listStart')}</th><th>${t('th.unit')}</th>` : ''}</tr>`
         + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td>`
@@ -663,6 +664,39 @@ $('duTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[
 $('dfgFn').onchange = () => { dfgFnChoice = $('dfgFn').value; dfgBlockChoice = null; dfgSel = null; renderDfg(); };
 $('dfgBlock').onchange = () => { dfgBlockChoice = $('dfgBlock').value; dfgSel = null; renderDfg(); };
 for (const id of ['dfgSched', 'resPipe', ...UNITS.map((u) => `res-${u}`)]) $(id).addEventListener('change', () => renderDfg());
+
+// Latências do DFG, editáveis (o padrão é o do simulador de processadores) e guardadas no navegador.
+const LAT_CLASSES = ['alu', 'mul', 'div', 'load', 'store', 'fadd', 'fmul', 'fdiv', 'branch', 'call'];
+const LAT_SHORT = { alu: 'int', mul: 'mul', div: 'div', load: 'load', store: 'store', fadd: 'fadd', fmul: 'fmul', fdiv: 'fdiv', branch: 'br', call: 'call' };
+function fillLatInputs() {
+    let saved = {};
+    try { saved = JSON.parse(store.get('cc.dfgLat') ?? '{}') ?? {}; } catch { saved = {}; }
+    $('dfgLatInputs').innerHTML = LAT_CLASSES.map((k) => {
+        const v = Number.isInteger(saved[k]) && saved[k] >= 1 && saved[k] <= 99 ? saved[k] : LATENCY[k];
+        return `<label style="margin:0" title="${esc(t(`cls.${k}`))}"><span class="mono">${LAT_SHORT[k]}</span> <input type="number" id="lat-${k}" data-lat="${k}" min="1" max="99" value="${v}" style="width:52px" /></label>`;
+    }).join('');
+}
+function dfgLatency() {
+    const lat = { ...LATENCY };
+    for (const k of LAT_CLASSES) {
+        const v = Math.round(+$(`lat-${k}`)?.value);
+        if (v >= 1 && v <= 99) lat[k] = v;
+    }
+    return lat;
+}
+fillLatInputs();
+$('dfgLatInputs').addEventListener('change', () => {
+    const lat = dfgLatency();
+    store.set('cc.dfgLat', JSON.stringify(Object.fromEntries(LAT_CLASSES.map((k) => [k, lat[k]]))));
+    if (last?.phase === 'done') renderDfg();
+});
+$('dfgLatReset').onclick = () => {
+    store.set('cc.dfgLat', '{}');
+    fillLatInputs();
+    if (last?.phase === 'done') renderDfg();
+};
+$('dfgOps').checked = store.get('cc.dfgOps') === '1';
+$('dfgOps').onchange = () => { store.set('cc.dfgOps', $('dfgOps').checked ? '1' : '0'); dfgSel = null; if (last?.phase === 'done') renderDfg(); };
 
 $('irLevel').value = level;
 $('irLevel').onchange = () => {
@@ -1186,6 +1220,7 @@ function applyDomTranslations() {
 langSelect.addEventListener('change', () => {
     setLanguage(langSelect.value);
     applyDomTranslations();
+    fillLatInputs();
     fillExamples();
     // Um exemplo carregado troca de idioma junto (só os comentários mudam); texto editado fica como está.
     if (exampleId) { const top = code.scrollTop; loadExample(exampleId); code.scrollTop = top; }

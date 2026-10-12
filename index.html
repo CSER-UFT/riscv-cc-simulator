@@ -170,6 +170,10 @@
                             </select></label>
                             <span id="hlsRes" class="row hidden"><label style="margin:0"><span data-i18n="unit.alu"></span> <input type="number" id="res-alu" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.mul"></span> <input type="number" id="res-mul" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.mem"></span> <input type="number" id="res-mem" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.fpu"></span> <input type="number" id="res-fpu" min="1" max="16" value="1" style="width:52px" /></label><label class="check" style="margin:0"><input type="checkbox" id="resPipe" /> <span data-i18n="dfg.pipelined">unidades com pipeline</span></label></span>
                         </div>
+                        <div class="row" style="margin-top:8px">
+                            <label class="check" style="margin:0" data-i18n-title="dfg.opsOnlyHelp"><input type="checkbox" id="dfgOps" /> <span data-i18n="dfg.opsOnly">Só operações (sem acessos à memória)</span></label>
+                        </div>
+                        <div class="row lat-row" style="margin-top:8px"><span data-i18n="dfg.latTitle">Latências (ciclos):</span> <span id="dfgLatInputs" class="row"></span> <button type="button" class="btn outline" id="dfgLatReset" data-i18n="dfg.latReset">Padrão</button></div>
                         <div class="fig-box" id="dfgFig"></div>
                         <p class="note" id="dfgLat"></p>
                         <div class="graph-pair">

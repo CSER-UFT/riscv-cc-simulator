@@ -111,6 +111,8 @@ export function dfgSvg(g, lay, { selected = null, tr, summary = null }) {
         s += `<text class="mono small${n.critical ? ' bold' : ''}" x="${it.x}" y="${it.top + Math.min(it.h / 2 + 4, 15)}" text-anchor="middle">${esc(it.label)}</text>`;
         if (it.h >= 30) s += `<text class="small muted" x="${it.x}" y="${it.top + 28}" text-anchor="middle">${esc(n.unit ? `${n.unit} · ${tr('dfg.lat', { n: n.lat })}` : tr('dfg.lat', { n: n.lat }))}</text>`;
         else if (n.unit) s += `<title>${esc(n.unit)}</title>`;
+        // Valor que vai para a memória (store retirado do grafo).
+        if (n.toMem) s += `<text class="small muted mono" x="${it.x + it.w / 2 + 4}" y="${it.top + 13}">→ mem</text>`;
         s += '</g>';
     }
     s += `<text class="small bold" x="${PAD + AXIS}" y="${height - 12}">${esc(summary ?? tr('dfg.summary', { len: g.length, sum: g.seqSum, ilp: g.length ? (g.seqSum / g.length).toFixed(2) : '-' }))}</text>`;

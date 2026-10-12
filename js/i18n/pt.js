@@ -372,4 +372,10 @@ export default {
     'ra.cross': "Atravessa chamada",
     'ra.spilled': "pilha (spill)",
     'ra.yes': "sim",
+    'dfg.opsOnly': "Só operações (sem acessos à memória)",
+    'dfg.opsOnlyHelp': "Retira load, store e getelementptr, e o cálculo de endereço que só servia a eles: o valor lido vira uma entrada (load) e o valor guardado fica marcado com → mem",
+    'dfg.latTitle': "Latências (ciclos):",
+    'dfg.latReset': "Padrão",
+    'dfg.latDefault': "Latências padrão, as do simulador de processadores.",
+    'dfg.latChanged': "Latências alteradas: {list}. O escalonamento e o caminho crítico usam esses valores; o assembly e o mapa de calor continuam com os do simulador de processadores.",
 };
