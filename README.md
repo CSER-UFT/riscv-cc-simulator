@@ -6,7 +6,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 
 ## O que faz
 
-* Editor com destaque de sintaxe e compilação enquanto se digita; erros e avisos com o número da linha (clique para ir até ela).
+* Editor com destaque de sintaxe e compilação enquanto se digita, em MiniC ou em **IR do LLVM** (`.ll`, como a do clang); erros e avisos com o número da linha (clique para ir até ela).
 * Faixa com as fases do compilador (léxico, sintático, semântico, IR, RISC-V e execução), marcando onde a compilação parou.
 * **Tokens**: tabela com tipo, lexema, posição e valor, com passo a passo que destaca cada token no código.
 * **Árvore sintática abstrata** em SVG, crescendo na ordem em que a descida recursiva cria os nós, com o tipo de cada expressão calculado na análise semântica; uma função de cada vez ou o programa inteiro.
@@ -14,13 +14,16 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 * **IR e RISC-V** lado a lado, ligados ao código fonte: uma linha clicada em qualquer das três visões destaca as correspondentes nas outras duas. O assembly pode trazer como comentários a instrução da IR e a linha do fonte que geraram cada trecho.
 * **mem2reg**: a mesma IR na forma SSA, como `opt -passes=mem2reg` (phi na fronteira de dominância iterada, podada pela vivacidade, com os nomes `%i.0` do LLVM), com o assembly gerado a partir dela e a comparação das duas versões na execução.
 * **Fluxo de controle**: grafo de fluxo de controle em camadas, árvore de dominadores, fronteira de dominância e laços naturais com a profundidade de aninhamento; um clique num bloco destaca os seus dominadores e a sua fronteira.
-* **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; cadeias de definição e uso da função.
+* **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; escalonamento por lista com recursos limitados (ALU, multiplicador, memória, ponto flutuante), com ou sem unidades em pipeline, como na síntese de alto nível; cadeias de definição e uso da função.
 * **Mapa de calor** no código fonte, na IR, no assembly e no CFG: frequência estimada dos blocos (como a BlockFrequencyInfo do LLVM), execuções medidas e ciclos e bolhas de cada instrução no monociclo, no pipeline ou na emissão dupla do simulador de processadores, com ou sem caches; comparação entre a frequência estimada e a medida e exportação em CSV.
 * **Otimizações** sobre a SSA, cada uma com a lista do que transformou: propagação de constantes e de desvios com junção de blocos, simplificação algébrica e redução de força, eliminação de subexpressões comuns e de loads repetidos, movimentação de código invariante (LICM) e eliminação de código morto; e **aproximações**: perfuração de laço, redução da precisão do float e multiplicação inteira aproximada, com o erro das saídas, a aceleração em ciclos e a varredura de erro contra ganho, exportável em SVG e CSV.
+* **Alocação de registradores** por varredura linear (linear scan), com registradores preservados para os valores vivos durante chamadas, spill para o quadro e cópias paralelas das `phi`; tabela com o intervalo de vida e o registrador de cada valor.
+* **Escalonamento de instruções** do assembly por lista, para o pipeline ou em pares para a emissão dupla estática (ALU com load ou store), com os ciclos de cada versão nos modelos do simulador de processadores.
+* **Importação de IR do LLVM**: arquivos `.ll` do `clang -O0` (ou escritos à mão, inclusive em SSA) seguem pelas mesmas fases; `llvm.fmuladd` vira `fmul` e `fadd`, e `llvm.memcpy` e `llvm.memset` de vetores locais viram loads e stores. O que fica fora do subconjunto é recusado com a linha e o motivo.
 * **Registro de ativação** de cada função em SVG, com os deslocamentos em relação a `s0` e a `sp`.
-* **Execução** do assembly no mesmo simulador funcional do riscv-cpu-simulator (valor de retorno de `main`, instruções executadas, variáveis globais) e botão para abrir o código gerado no simulador de processadores, no modelo com pipeline.
+* **Execução** do assembly no mesmo simulador funcional do riscv-cpu-simulator (valor de retorno de `main`, instruções executadas, ciclos no pipeline e na emissão dupla, variáveis globais) e botão para abrir o código gerado no simulador de processadores, no modelo com pipeline.
 * Exportações: figuras em SVG independentes, grafos no formato DOT do Graphviz (como `opt -passes=dot-cfg`), tabelas em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), IR (`.ll`) e assembly (`.s`).
-* Exemplos: soma de vetor, soma com ponteiro, troca com ponteiros, fatorial recursivo, Fibonacci, MDC, ordenação pelo método da bolha, SAXPY, multiplicação de matrizes, curto circuito, média de floats e busca binária.
+* Exemplos: soma de vetor, soma com ponteiro, troca com ponteiros, fatorial recursivo, Fibonacci, MDC, ordenação pelo método da bolha, SAXPY, multiplicação de matrizes, curto circuito, média de floats, busca binária, pi pela série de Leibniz, filtro de média e produto escalar, com os comentários em português ou inglês conforme o idioma da interface; cada um também na versão em IR gerada pelo clang 18.
 
 ## A linguagem MiniC
 
@@ -35,9 +38,12 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 | `js/cc/sema.js` | escopos, tabela de símbolos e verificação de tipos |
 | `js/cc/irgen.js` | IR no formato do LLVM: `alloca`, `load`, `store`, `getelementptr`, `icmp`, `fcmp`, `phi` para `&&` e `||`, blocos com o nome usado pelo clang |
 | `js/cc/codegen.js` | RISC-V: quadro com base em `s0`, convenção de chamada (ABI ilp32f), comparação e desvio fundidos, `phi` por cópias, temporários em `t0` a `t5` e `ft0` a `ft7` com valores guardados no quadro ao cruzar desvios e chamadas |
+| `js/cc/codegen-ra.js` | RISC-V com alocação de registradores por varredura linear: vivacidade por bloco, intervalos, registradores `s` e `fs` para valores vivos em chamadas, spill, cópias paralelas das `phi` |
+| `js/cc/sched.js` | escalonamento por lista do assembly (dependências de registrador e de memória), para o pipeline ou em pares para a emissão dupla |
+| `js/cc/ll.js` | importação de IR do LLVM em texto (subconjunto do `clang -O0`) |
 | `js/cc/mem2reg.js` | promoção das variáveis para valores SSA (mem2reg) |
 | `js/cc/cfg.js` | CFG, ordem pós-fixa reversa, dominadores (Cooper, Harvey e Kennedy), fronteira de dominância, laços naturais |
-| `js/cc/dfg.js` | grafo de fluxo de dados por bloco, dependências de memória, ASAP, ALAP e caminho crítico; definições e usos |
+| `js/cc/dfg.js` | grafo de fluxo de dados por bloco, dependências de memória, ASAP, ALAP e caminho crítico, escalonamento por lista com recursos; definições e usos |
 | `js/cc/profile.js` | frequência estimada dos blocos, perfil por instrução no simulador de processadores |
 | `js/cc/opt.js` | otimizações clássicas e aproximadas sobre a SSA, erro das saídas |
 | `js/cc/experiment.js` | medida e varredura de erro contra ganho |
@@ -46,7 +52,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 
 ## Próximas etapas previstas
 
-* Alocação de registradores, escalonamento para o processador com despacho duplo e escalonamento no estilo da síntese de alto nível.
+* Unidades aproximadas modeladas em hardware (área, energia e latência), para que a redução de precisão e a multiplicação aproximada tenham ganho medido, e não só emulado.
 
 ## Testes
 
@@ -54,7 +60,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 npm test
 ```
 
-Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados com laços e trocas de variáveis; em todos, a IR interpretada, a IR depois da mem2reg, a IR com as otimizações clássicas e o assembly gerado a partir de cada uma precisam dar o mesmo resultado. As aproximações são conferidas quanto a terminar, acessar a memória certa e ter erro crescente com a agressividade. Verificam também os dominadores, as fronteiras e os laços de programas conhecidos, o caminho crítico e as dependências de memória, a saída da mem2reg no formato do LLVM e os arquivos DOT. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
+Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados com laços e trocas de variáveis; em todos, a IR interpretada, a IR depois da mem2reg, a IR com as otimizações clássicas e o assembly gerado a partir de cada uma (com e sem alocação de registradores, com e sem escalonamento) precisam dar o mesmo resultado. A IR que o clang 18 gera para cada exemplo é importada e precisa dar o mesmo resultado do MiniC. As aproximações são conferidas quanto a terminar, acessar a memória certa e ter erro crescente com a agressividade. Verificam também os dominadores, as fronteiras e os laços de programas conhecidos, o caminho crítico e as dependências de memória, a saída da mem2reg no formato do LLVM e os arquivos DOT. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
 
 ## Licença
 

@@ -2,16 +2,17 @@
  * Interface: editor de MiniC, fases do compilador (tokens, árvore, símbolos, IR e RISC-V, pilha), execução,
  * idioma, tema e ajuda.
  */
-import { compile } from './cc/compile.js';
+import { compile, compileLL } from './cc/compile.js';
 import { interpret } from './cc/irinterp.js';
 import { runAsm } from './cc/run.js';
 import { str } from './cc/types.js';
-import { EXAMPLES } from './examples.js';
+import { EXAMPLES, exampleCode } from './examples.js';
+import { EXAMPLES_LL } from './examples-ll.js';
 import { minicLines, irLine, asmLine, esc } from './ui/highlight.js';
 import { layoutTree, astSvg } from './ui/ast-svg.js';
 import { frameSvg } from './ui/frame-svg.js';
 import { analyzeCfg } from './cc/cfg.js';
-import { blockDfg, defUse, LATENCY } from './cc/dfg.js';
+import { blockDfg, defUse, LATENCY, listSchedule, alapSchedule, UNITS } from './cc/dfg.js';
 import { valueText } from './cc/irgen.js';
 import { layoutCfg, cfgSvg, domTreeSvg } from './ui/cfg-svg.js';
 import { layoutDfg, dfgSvg, shortText } from './ui/dfg-svg.js';
@@ -43,6 +44,11 @@ let tab = store.get('cc.tab') || 'code';
 let selection = { from: null, src: null, ir: null, asm: null };
 let mark = null;                 // trecho do fonte em destaque: {start, end}
 let errorLines = new Set();
+// Linguagem do editor: MiniC ou IR do LLVM importada (.ll); cada uma guarda o seu texto.
+let srcLang = store.get('cc.srcLang') === 'll' ? 'll' : 'c';
+const codeKey = () => (srcLang === 'll' ? 'cc.code.ll' : 'cc.code');
+const exKey = () => (srcLang === 'll' ? 'cc.example.ll' : 'cc.example');
+const SRC_TABS = ['tokens', 'ast', 'symbols'];
 let level = ['ssa', 'opt'].includes(store.get('cc.level')) ? store.get('cc.level') : 'O0';   // IR mostrada
 
 /** IR, assembly e quadros do nível escolhido: sem otimização, depois da mem2reg ou com as otimizações escolhidas. */
@@ -62,7 +68,7 @@ function refreshEditor() {
     let g = '';
     for (let i = 1; i <= lines.length; i++) g += errorLines.has(i) ? `<span class="err">${i}</span>\n` : `${i}\n`;
     $('gutter').innerHTML = `<div class="code-inner">${g}</div>`;
-    const hl = minicLines(code.value).map((h, i) => (errorLines.has(i + 1) ? `<span class="hl-err">${h || ' '}</span>` : h));
+    const hl = (srcLang === 'll' ? code.value.split('\n').map(irLine) : minicLines(code.value)).map((h, i) => (errorLines.has(i + 1) ? `<span class="hl-err">${h || ' '}</span>` : h));
     $('highlight').innerHTML = `<div class="code-inner">${hl.join('\n')}\n</div>`;
     refreshMarks();
 }
@@ -113,8 +119,8 @@ code.addEventListener('scroll', syncScroll);
 code.addEventListener('input', () => {
     exampleId = null;
     $('example').value = '';
-    store.set('cc.code', code.value);
-    store.set('cc.example', '');
+    store.set(codeKey(), code.value);
+    store.set(exKey(), '');
     mark = null;
     refreshEditor();
     clearTimeout(compileTimer);
@@ -161,10 +167,10 @@ function loadExample(id) {
     const ex = EXAMPLES.find((e) => e.id === id);
     if (!ex) return;
     exampleId = id;
-    code.value = ex.code;
+    code.value = srcLang === 'll' ? EXAMPLES_LL[id] : exampleCode(ex, getLanguage());
     code.scrollTop = 0;
-    store.set('cc.example', id);
-    store.set('cc.code', ex.code);
+    store.set(exKey(), id);
+    store.set(codeKey(), code.value);
     selection = { from: null, src: null, ir: null, asm: null };
     mark = null;
     astChoice = null;
@@ -177,7 +183,8 @@ function runCompile(full = true) {
     runLimit = full ? RUN_LIMIT : LIVE_LIMIT;
     clearTimeout(compileTimer);
     stop();
-    const c = compile(code.value, { irComments: $('optIr').checked, srcComments: $('optSrc').checked, tr: t });
+    const opts = { irComments: $('optIr').checked, srcComments: $('optSrc').checked, tr: t, regalloc: $('optRA').checked, schedule: $('optSched').value };
+    const c = (srcLang === 'll' ? compileLL : compile)(code.value, opts);
     if (c.phase === 'done') {
         c.interp = interpret(c.module, { maxSteps: runLimit });
         c.run = runAsm(c, { maxInstructions: runLimit });
@@ -189,7 +196,7 @@ function runCompile(full = true) {
     $('errors').innerHTML = c.errors.map((e) => `<li data-line="${e.line}">${esc(t('msg.line', { line: e.line, msg: e.message }))}</li>`).join('')
         + c.warnings.map((w) => `<li data-line="${w.line}" class="warn">${esc(t('msg.warn', { line: w.line, msg: w.message }))}</li>`).join('');
     refreshEditor();
-    steppers.tokens.reset(c.tokens.filter((k) => k.kind !== 'eof').length);
+    steppers.tokens.reset((c.tokens ?? []).filter((k) => k.kind !== 'eof').length);
     buildAst();
     renderPhases();
     renderTokens();
@@ -209,15 +216,19 @@ function runCompile(full = true) {
 
 function renderPhases() {
     const order = ['lex', 'parse', 'sema', 'ir', 'asm', 'run'];
-    const failed = last.errors.length ? last.phase : null;
+    // Com um .ll importado, as três primeiras fases não existem; a importação é a fase da IR.
+    const imported = last.lang === 'll';
+    const failed = last.errors.length ? (last.phase === 'll' ? 'ir' : last.phase) : null;
     const reached = failed ? order.indexOf(failed) : order.length - 1;
     const runState = last.run ? (last.run.errors.length ? 'err' : last.run.reason === 'end' ? 'ok' : 'warn') : 'pending';
     const tabOf = { lex: 'tokens', parse: 'ast', sema: 'symbols', ir: 'code', asm: 'code', run: null };
     $('phases').innerHTML = order.map((p, k) => {
         let s = k < reached ? 'ok' : k === reached ? (failed ? 'err' : 'ok') : 'pending';
         if (p === 'run') s = failed ? 'pending' : runState;
-        const tb = tabOf[p];
-        return `<li class="ph ${s}"${tb ? ` data-tab="${tb}"` : ''}>${t(`phase.${p}`)}</li>`;
+        if (imported && k < 3) s = 'skip';
+        const tb = imported && k < 3 ? null : tabOf[p];
+        const label = imported && p === 'ir' ? t('phase.llImport') : t(`phase.${p}`);
+        return `<li class="ph ${s}"${tb ? ` data-tab="${tb}"` : ''}${s === 'skip' ? ` title="${esc(t('phase.skipLl'))}"` : ''}>${label}</li>`;
     }).join('');
 }
 $('phases').addEventListener('click', (e) => { const li = e.target.closest('li[data-tab]'); if (li) showTab(li.dataset.tab); });
@@ -235,11 +246,20 @@ function renderRun() {
     let h = '<table class="kv">';
     h += `<tr><th>${t('run.ret')}</th><td class="mono big" colspan="2">${limit ? '-' : esc(fmt(r.ret))} <span class="note">(${reg})</span></td></tr>`;
     h += `<tr><th></th><td class="note">${t('run.colO0')}</td><td class="note">${t('run.colSsa')}</td></tr>`;
-    h += `<tr><th>${t('run.asmExec')}</th><td>${r.executed}</td><td>${q.errors.length ? '-' : q.executed}</td></tr>`;
-    h += `<tr><th>${t('run.irExec')}</th><td>${last.interp.steps}</td><td>${last.ssaInterp.steps}</td></tr>`;
+    h += `<tr><th>${t('run.asmExec')}</th><td>${fmtNum(r.executed)}</td><td>${q.errors.length ? '-' : fmtNum(q.executed)}</td></tr>`;
+    h += `<tr><th>${t('run.irExec')}</th><td>${fmtNum(last.interp.steps)}</td><td>${fmtNum(last.ssaInterp.steps)}</td></tr>`;
     h += `<tr><th>${t('run.static')}</th><td>${r.program.instructions.length}</td><td>${q.errors.length ? '-' : q.program.instructions.length}</td></tr>`;
+    // Ciclos nos modelos do simulador de processadores (o efeito da alocação e do escalonamento aparece aqui).
+    const cyc = (v, model) => {
+        const p = profileOf(v, model);
+        if (p.errors?.length) return '-';
+        return p.finished ? fmtNum(p.cycles) : `> ${fmtNum(p.cycles)}`;
+    };
+    const vO0 = { key: 'O0', asm: last.asm }, vSsa = { key: 'ssa', asm: last.ssa.asm };
+    for (const model of ['pipeline', 'dual'])
+        h += `<tr><th>${t(`run.cycles.${model}`)}</th><td>${cyc(vO0, model)}</td><td>${q.errors.length ? '-' : cyc(vSsa, model)}</td></tr>`;
     h += '</table>';
-    h += `<p class="note">${t('run.ssaNote')}</p>`;
+    h += `<p class="note">${t(last.genOpts?.regalloc ? 'run.ssaNoteRA' : 'run.ssaNote')}</p>`;
     if (limit) h += `<p class="note warn">${t('run.limit', { n: fmtNum(runLimit) })}${runLimit < RUN_LIMIT ? ` ${t('run.liveLimit')}` : ''}</p>`;
     if (mismatch) h += `<p class="note warn">${t('run.mismatch')}</p>`;
     if (r.globals.size) {
@@ -319,13 +339,14 @@ function play() {
 // Tokens -----------------------------------------------------------------------------------------------------
 
 function renderTokens() {
-    const toks = last.tokens.filter((k) => k.kind !== 'eof');
+    const toks = (last.tokens ?? []).filter((k) => k.kind !== 'eof');
     $('tokTable').innerHTML = `<tr><th>#</th><th>${t('th.tokKind')}</th><th>${t('th.lexeme')}</th><th>${t('th.pos')}</th><th>${t('th.value')}</th></tr>`
         + toks.map((k, i) => `<tr data-i="${i + 1}"><td>${i + 1}</td><td class="tk-${k.kind}">${t(`tok.${k.kind}`)}</td><td class="mono">${esc(k.text)}</td><td>${k.line}:${k.col}</td><td class="mono">${k.value !== undefined ? esc(String(k.value)) : ''}</td></tr>`).join('');
 }
 $('tokTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-i]'); if (tr) { stop(); steppers.tokens.show(+tr.dataset.i); } });
 
 function showToken(i) {
+    if (!last.tokens) return;
     const toks = last.tokens.filter((k) => k.kind !== 'eof');
     for (const tr of $('tokTable').querySelectorAll('tr[data-i]')) {
         const k = +tr.dataset.i;
@@ -531,6 +552,12 @@ function currentFrame() { return last.frames ? V().frames.find((f) => f.fn === $
 function drawFrame() {
     const f = currentFrame();
     $('frameFig').innerHTML = f ? frameSvg(f, t) : '';
+    // Com a alocação de registradores: o intervalo de vida de cada valor e o registrador (ou o quadro).
+    $('raBox').classList.toggle('hidden', !f?.regalloc);
+    if (!f?.regalloc) return;
+    const rows = [...f.regalloc].sort((a, b) => a.start - b.start || a.end - b.end);
+    $('raTable').innerHTML = `<tr><th>${t('ra.value')}</th><th>${t('ra.interval')}</th><th>${t('ra.reg')}</th><th>${t('ra.cross')}</th></tr>`
+        + rows.map((r) => `<tr><td class="mono">${esc(r.value)}</td><td>${r.start}…${r.end}</td><td class="mono">${r.spilled ? esc(t('ra.spilled')) : esc(r.reg ?? '-')}</td><td>${r.cross ? t('ra.yes') : ''}</td></tr>`).join('');
 }
 $('frameFn').onchange = drawFrame;
 
@@ -597,11 +624,22 @@ function renderDfg() {
     bsel.value = F.blocks.some((b) => b.label === dfgBlockChoice) ? dfgBlockChoice : best;
     const g = blockDfg(F, bsel.value);
     if (dfgSel !== null && dfgSel >= g.nodes.length) dfgSel = null;
-    dfgView = { F, g, layout: layoutDfg(g, t('dfg.summary', { len: g.length, sum: g.seqSum, ilp: '0.00' }).length) };
+    // Escalonamento mostrado: ASAP, ALAP ou por lista com recursos limitados (estilo HLS).
+    const mode = $('dfgSched').value;
+    $('hlsRes').classList.toggle('hidden', mode !== 'list');
+    const res = Object.fromEntries(UNITS.map((u) => [u, Math.max(1, Math.min(16, +$(`res-${u}`).value || 1))]));
+    const shown = mode === 'list' ? listSchedule(g, res, { pipelined: $('resPipe').checked }) : mode === 'alap' ? alapSchedule(g) : g;
+    let summary = null;
+    if (mode === 'list') {
+        summary = t('dfg.listSummary', { len: shown.length, asap: g.length, use: UNITS.filter((u) => shown.nodes.some((n) => n.unit?.startsWith(u))).map((u) => `${t(`unit.${u}`)} ${Math.round(100 * shown.use[u])}%`).join(', ') });
+    }
+    dfgView = { F, g, shown, summary, layout: layoutDfg(shown, (summary ?? t('dfg.summary', { len: g.length, sum: g.seqSum, ilp: '0.00' })).length) };
     drawDfg();
     $('dfgLat').innerHTML = `${t('dfg.latencies')} ${Object.entries(LATENCY).map(([k, v]) => `${esc(t(`cls.${k}`))} ${v}`).join('; ')}.`;
-    $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th></tr>`
-        + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td></tr>`).join('');
+    const isList = mode === 'list';
+    $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th>${isList ? `<th>${t('th.listStart')}</th><th>${t('th.unit')}</th>` : ''}</tr>`
+        + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td>`
+            + `${isList ? `<td>${shown.nodes[n.id].start}</td><td class="mono">${shown.nodes[n.id].unit ?? '-'}</td>` : ''}</tr>`).join('');
     const du = defUse(F);
     const where = (u) => `${esc(u.block)}: ${esc(shortText(u.inst))}${u.from ? ` (${esc(u.from)})` : ''}`;
     $('duTable').innerHTML = `<tr><th>${t('th.valueCol')}</th><th>${t('th.def')}</th><th>${t('th.usesCol')}</th></tr>`
@@ -610,7 +648,7 @@ function renderDfg() {
 }
 function drawDfg() {
     if (!dfgView) return;
-    $('dfgFig').innerHTML = dfgSvg(dfgView.g, dfgView.layout, { selected: dfgSel, tr: t });
+    $('dfgFig').innerHTML = dfgSvg(dfgView.shown, dfgView.layout, { selected: dfgSel, tr: t, summary: dfgView.summary });
     for (const tr of $('dfgTable').querySelectorAll('tr[data-id]')) tr.classList.toggle('cur', +tr.dataset.id === dfgSel);
 }
 function chooseNode(id) {
@@ -624,6 +662,7 @@ $('dfgTable').addEventListener('click', (e) => { const tr = e.target.closest('tr
 $('duTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-line]'); if (tr && tr.dataset.line) select({ from: 'src', src: +tr.dataset.line }); });
 $('dfgFn').onchange = () => { dfgFnChoice = $('dfgFn').value; dfgBlockChoice = null; dfgSel = null; renderDfg(); };
 $('dfgBlock').onchange = () => { dfgBlockChoice = $('dfgBlock').value; dfgSel = null; renderDfg(); };
+for (const id of ['dfgSched', 'resPipe', ...UNITS.map((u) => `res-${u}`)]) $(id).addEventListener('change', () => renderDfg());
 
 $('irLevel').value = level;
 $('irLevel').onchange = () => {
@@ -920,7 +959,7 @@ for (const id of [...CLASSIC.map((k) => `opt-${k}`), 'optLoop', 'optK', 'optBits
 function available(name) {
     if (!last) return false;
     switch (name) {
-        case 'tokens': return true;
+        case 'tokens': return !!last.tokens;
         case 'ast': return !!last.ast;
         case 'symbols': return !!last.sema;
         default: return last.phase === 'done';
@@ -929,6 +968,7 @@ function available(name) {
 
 function showTab(name) {
     stop();
+    if (srcLang === 'll' && SRC_TABS.includes(name)) name = 'code';
     tab = name;
     store.set('cc.tab', name);
     for (const b of $('tabs').querySelectorAll('[data-tab]')) b.classList.toggle('sel', b.dataset.tab === name);
@@ -953,7 +993,7 @@ function download(name, text, type) {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const baseName = () => exampleId ?? 'programa';
-$('tokTex').onclick = () => last && download(`${baseName()}-tokens.tex`, tokensTex(last.tokens), 'application/x-tex');
+$('tokTex').onclick = () => last?.tokens && download(`${baseName()}-tokens.tex`, tokensTex(last.tokens), 'application/x-tex');
 $('symTex').onclick = () => last?.sema && download(`${baseName()}-${getLanguage() === 'en' ? 'symbols' : 'simbolos'}.tex`, symbolsTex(symbolRows()), 'application/x-tex');
 $('frameTex').onclick = () => { const f = currentFrame(); if (f) download(`${f.fn}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.tex`, frameTex(f), 'application/x-tex'); };
 const lvlSuffix = () => ({ O0: '', ssa: '-mem2reg', opt: '-opt' })[level];
@@ -1033,7 +1073,7 @@ function flash(el, text) {
 }
 // Link de compartilhamento: o código, a aba, o nível de IR e as escolhas da aba Otimizações.
 $('shareLink').onclick = async () => {
-    const payload = { code: code.value, tab, level, opt: optState() };
+    const payload = { code: code.value, lang: srcLang, tab, level, opt: optState(), ra: $('optRA').checked, sched: $('optSched').value };
     const url = `${location.origin}${location.pathname}#s=${encodeShare(payload)}`;
     try {
         await navigator.clipboard.writeText(url);
@@ -1044,8 +1084,12 @@ $('shareLink').onclick = async () => {
 };
 function applyShared(p) {
     if (typeof p.code !== 'string') return false;
+    setSrcLang(p.lang === 'll' ? 'll' : 'c');
     code.value = p.code;
     exampleId = null;
+    $('example').value = '';
+    if (typeof p.ra === 'boolean') $('optRA').checked = p.ra;
+    if (['none', 'pipeline', 'dual'].includes(p.sched)) $('optSched').value = p.sched;
     if (['O0', 'ssa', 'opt'].includes(p.level)) { level = p.level; $('irLevel').value = level; }
     if (typeof p.tab === 'string' && document.querySelector(`#tabs [data-tab="${p.tab}"]`)) tab = p.tab;
     runCompile();
@@ -1063,6 +1107,34 @@ function applyShared(p) {
 $('run').onclick = () => runCompile();
 $('optIr').onchange = () => runCompile();
 $('optSrc').onchange = () => runCompile();
+$('optRA').checked = store.get('cc.ra') === '1';
+$('optSched').value = ['pipeline', 'dual'].includes(store.get('cc.sched')) ? store.get('cc.sched') : 'none';
+$('optRA').onchange = () => { store.set('cc.ra', $('optRA').checked ? '1' : '0'); runCompile(); };
+$('optSched').onchange = () => { store.set('cc.sched', $('optSched').value); runCompile(); };
+
+/** Troca a linguagem do editor (sem carregar texto): título, abas das fases do MiniC e destaque. */
+function setSrcLang(lang) {
+    srcLang = lang;
+    store.set('cc.srcLang', lang);
+    $('srcLang').value = lang;
+    $('srcTitle').textContent = t(lang === 'll' ? 'src.titleLl' : 'src.title');
+    for (const b of $('tabs').querySelectorAll('[data-tab]')) b.hidden = lang === 'll' && SRC_TABS.includes(b.dataset.tab);
+    if (lang === 'll' && SRC_TABS.includes(tab)) tab = 'code';
+}
+$('srcLang').value = srcLang;
+$('srcLang').onchange = () => {
+    // O exemplo aberto continua o mesmo na outra linguagem; texto editado fica guardado na sua linguagem.
+    const keepEx = exampleId;
+    setSrcLang($('srcLang').value);
+    selection = { from: null, src: null, ir: null, asm: null };
+    mark = null;
+    const saved = store.get(codeKey());
+    const ex = store.get(exKey());
+    if (ex === '' && saved) { exampleId = null; code.value = saved; }
+    else loadExample(keepEx ?? (EXAMPLES.some((e) => e.id === ex) ? ex : EXAMPLES[0].id));
+    $('example').value = exampleId ?? '';
+    runCompile();
+};
 
 // Teclado: setas avançam e voltam o passo a passo da aba aberta (tokens ou árvore).
 document.addEventListener('keydown', (e) => {
@@ -1104,6 +1176,7 @@ langSelect.value = getLanguage();
 function applyDomTranslations() {
     document.documentElement.lang = getLanguage() === 'en' ? 'en' : 'pt-BR';
     document.title = t('ui.docTitle');
+    $('srcTitle').textContent = t(srcLang === 'll' ? 'src.titleLl' : 'src.title');
     for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
     for (const el of document.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);
     for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
@@ -1114,6 +1187,8 @@ langSelect.addEventListener('change', () => {
     setLanguage(langSelect.value);
     applyDomTranslations();
     fillExamples();
+    // Um exemplo carregado troca de idioma junto (só os comentários mudam); texto editado fica como está.
+    if (exampleId) { const top = code.scrollTop; loadExample(exampleId); code.scrollTop = top; }
     const cur = { tokens: steppers.tokens.cur, ast: steppers.ast.cur };
     runCompile();
     steppers.tokens.cur = Math.min(cur.tokens, steppers.tokens.n);
@@ -1124,8 +1199,9 @@ langSelect.addEventListener('change', () => {
 // Início -----------------------------------------------------------------------------------------------------
 
 applyDomTranslations();
-const savedEx = store.get('cc.example');
-const savedCode = store.get('cc.code');
+setSrcLang(srcLang);
+const savedEx = store.get(exKey());
+const savedCode = store.get(codeKey());
 let shared = null;
 if (location.hash.startsWith('#s=')) {
     try { shared = decodeShare(location.hash.slice(3)); } catch { shared = null; }

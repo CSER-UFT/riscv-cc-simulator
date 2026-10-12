@@ -75,3 +75,23 @@ test('DOT bem formado', () => {
     }
     assert.match(cfgDot(F, cfg), /Node\d+:s0 -> Node\d+/);
 });
+
+test('escalonamento com recursos limitados (HLS)', async () => {
+    const { listSchedule, UNIT_OF } = await import('../js/cc/dfg.js');
+    const g = blockDfg(fn('matriz', 'matmul', true), 'for.body3');
+    const s1 = listSchedule(g, { alu: 1, mul: 1, mem: 1, fpu: 1 });
+    const sInf = listSchedule(g, { alu: 8, mul: 8, mem: 8, fpu: 8 });
+    assert.equal(sInf.length, g.length);
+    assert.ok(s1.length > g.length);
+    // Dependências respeitadas e nunca duas operações na mesma unidade ao mesmo tempo (sem pipeline).
+    for (const n of s1.nodes) for (const p of n.preds) assert.ok(s1.nodes[p].start + s1.nodes[p].lat <= n.start);
+    const busy = new Map();
+    for (const n of s1.nodes) {
+        if (!UNIT_OF[n.cls]) continue;
+        for (let c = n.start; c < n.start + Math.max(1, n.lat); c++) {
+            const k = `${n.unit}@${c}`;
+            assert.ok(!busy.has(k), k);
+            busy.set(k, n.id);
+        }
+    }
+});

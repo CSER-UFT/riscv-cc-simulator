@@ -29,8 +29,9 @@ export default {
             html: `
 <dl>
     <dt>Código MiniC</dt><dd>Editor com destaque de sintaxe. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compila e executa de novo; <kbd>Tab</kbd> insere quatro espaços. O texto fica guardado no navegador para a próxima visita.</dd>
-    <dt>Copiar link</dt><dd>Copia um link que reabre o programa do editor, com a aba aberta, o nível de IR e as escolhas da aba Otimizações. Bom para a turma inteira começar do mesmo exemplo.</dd>
-    <dt>Opções</dt><dd><strong>Comentários com a IR</strong> coloca, ao lado de cada trecho do assembly, a instrução da IR que o gerou; <strong>Linhas do código fonte</strong> intercala as linhas do programa como comentários.</dd>
+    <dt>Copiar link</dt><dd>Copia um link que reabre o programa do editor, com a linguagem, a aba aberta, o nível de IR, as opções do gerador de código e as escolhas da aba Otimizações. Bom para a turma inteira começar do mesmo exemplo.</dd>
+    <dt>Linguagem</dt><dd>MiniC ou IR do LLVM (<code>.ll</code>), por exemplo a gerada pelo clang; veja <a href="#" data-help="ll">Importar IR do LLVM</a>. Cada linguagem guarda o seu texto.</dd>
+    <dt>Opções</dt><dd><strong>Comentários com a IR</strong> coloca, ao lado de cada trecho do assembly, a instrução da IR que o gerou; <strong>Linhas do código fonte</strong> intercala as linhas do programa como comentários. <strong>Alocação de registradores</strong> e <strong>Escalonamento</strong> mudam o gerador de código; veja <a href="#" data-help="ra">Alocação de registradores</a> e <a href="#" data-help="sched">Escalonamento de instruções</a>.</dd>
     <dt>IR</dt><dd>Escolhe a IR mostrada nas abas de código e de grafos: sem otimização (como <code>clang -O0</code>) depois da mem2reg, na forma SSA, ou com as otimizações escolhidas na aba Otimizações.</dd>
     <dt>Execução</dt><dd>O assembly é montado e executado pelo mesmo simulador funcional do Simulador de Processadores. A IR também é interpretada, e os dois resultados precisam coincidir (o quadro avisa se não coincidirem). O limite é de dois milhões de instruções.</dd>
     <dt>Fases</dt><dd>Clique em uma fase para abrir a aba correspondente.</dd>
@@ -119,6 +120,20 @@ comando    = bloco | if | while | for | "return" [expr] ";"
 <p>Para comparar com o clang: <code>clang --target=riscv32 -march=rv32imf -mabi=ilp32f -O0 -S -emit-llvm prog.c</code> (a IR) e o mesmo sem <code>-emit-llvm</code> (o assembly).</p>`,
         },
         {
+            id: 'll',
+            title: 'Importar IR do LLVM (.ll)',
+            html: `
+<p>O seletor <strong>Linguagem</strong>, acima do editor, troca o MiniC por <strong>IR do LLVM</strong> em formato textual. Assim dá para estudar a IR que o próprio clang gera para um programa em C, ou escrever IR à mão, e seguir com ela pelas mesmas fases: mem2reg, otimizações, grafos, alocação, escalonamento, assembly e execução. Os exemplos, nessa linguagem, são a saída do clang 18 para o código C de cada um:</p>
+<pre><code>clang --target=riscv32 -march=rv32imf -mabi=ilp32f -O0 -S -emit-llvm soma.c</code></pre>
+<p>O subconjunto aceito é o mesmo que o simulador gera a partir do MiniC: os tipos <code>i32</code>, <code>i1</code>, <code>float</code>, <code>ptr</code> e vetores de <code>i32</code> ou <code>float</code>; as instruções <code>alloca</code>, <code>load</code>, <code>store</code>, as aritméticas, <code>icmp</code>, <code>fcmp</code>, as conversões entre esses tipos, <code>getelementptr</code> com um índice (ou 0 e um índice sobre um vetor), <code>br</code>, <code>ret</code>, <code>phi</code> e <code>call</code>. O resto da sintaxe do clang é aceito e ignorado: <code>dso_local</code>, <code>noundef</code>, <code>align</code>, <code>nsw</code>, <code>#0</code>, metadados <code>!</code> e as linhas de atributos.</p>
+<ul>
+    <li><code>llvm.fmuladd.f32</code>, que o clang usa para <code>a * b + c</code>, vira <code>fmul</code> seguida de <code>fadd</code> (o RV32F tem <code>fmadd.s</code>, mas o simulador não funde as duas operações);</li>
+    <li><code>llvm.memcpy</code> e <code>llvm.memset</code> com tamanho constante, que o clang usa para iniciar vetores locais, viram uma sequência de <code>load</code> e <code>store</code>;</li>
+    <li>a numeração do clang é mantida (<code>%5</code>, rótulo <code>10:</code>), e o bloco de entrada sem nome se chama <code>entry</code>.</li>
+</ul>
+<p>O que fica de fora (<code>double</code>, <code>i8</code>, <code>i64</code>, <code>select</code>, <code>switch</code>, structs, chamadas indiretas, outras funções intrínsecas) é recusado com uma mensagem que diz a linha e o motivo. Em C, isso quer dizer: sem <code>double</code> (use <code>float</code> e constantes como <code>2.0f</code>), sem <code>char</code>, <code>long</code> e operador ternário. As abas Tokens, Árvore e Símbolos ficam escondidas, porque não há análise léxica, sintática nem semântica: o texto já é IR. O destaque entre as visões continua valendo, com as linhas do <code>.ll</code> no lugar das linhas do fonte.</p>`,
+        },
+        {
             id: 'codegen',
             title: 'Geração de código RISC-V',
             html: `
@@ -132,6 +147,7 @@ comando    = bloco | if | while | for | "return" [expr] ";"
     <tr><td><code>s0</code></td><td>ponteiro do quadro (topo do registro de ativação)</td></tr>
     <tr><td><code>sp</code>, <code>ra</code></td><td>topo da pilha e endereço de retorno</td></tr>
 </table>
+<p>A tabela vale para o gerador simples; com a opção <strong>Alocação de registradores</strong>, os registradores <code>s</code> e mais temporários entram em uso (veja <a href="#" data-help="ra">Alocação de registradores</a>).</p>
 <h3>Seleção de instruções</h3>
 <p>Cada instrução da IR vira uma ou poucas instruções RISC-V: <code>load</code> e <code>store</code> viram <code>lw</code>, <code>sw</code>, <code>flw</code> e <code>fsw</code> com deslocamento em relação a <code>s0</code>; <code>add</code> com constante pequena vira <code>addi</code>; <code>getelementptr</code> vira <code>slli</code> (multiplica o índice por 4) e <code>add</code>; <code>sitofp</code> vira <code>fcvt.s.w</code>; <code>fptosi</code> vira <code>fcvt.w.s</code> com arredondamento em direção ao zero (<code>rtz</code>), como o C exige.</p>
 <p>Uma comparação inteira seguida do desvio que a usa vira um único desvio condicional, como no livro: <code>for (i = 0; i &lt; n; i++)</code> gera <code>bge t0, t1, for.end</code>, com a condição invertida para que o corpo do laço venha logo em seguida. Um desvio para o bloco seguinte não gera instrução.</p>
@@ -164,7 +180,37 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
     <li>um percurso da árvore de dominadores troca cada <code>load</code> pelo valor que chega até ali, e cada <code>phi</code> recebe o valor que sai de cada predecessor.</li>
 </ol>
 <p>As <code>phi</code> recebem o nome da variável com um número de versão (<code>%i.0</code>), como no LLVM. Vetores e variáveis com o endereço tomado (<code>&amp;x</code>) continuam na memória; a nota acima do código lista quais foram promovidas. Um <code>load</code> sem nenhum <code>store</code> antes lê <code>undef</code>, um valor indefinido.</p>
-<p>O quadro Execução mostra as duas versões lado a lado. A mem2reg corta pela metade as instruções da IR, mas o assembly quase não muda: o gerador de código ainda guarda no quadro da pilha todo valor que passa de um bloco para outro, e as <code>phi</code> viram cópias. Aproveitar a forma SSA exige um alocador de registradores para a função inteira.</p>`,
+<p>O quadro Execução mostra as duas versões lado a lado. A mem2reg corta pela metade as instruções da IR, mas, sem a opção <strong>Alocação de registradores</strong>, o assembly quase não muda: o gerador de código simples guarda no quadro da pilha todo valor que passa de um bloco para outro, e as <code>phi</code> viram cópias. Aproveitar a forma SSA exige um alocador de registradores para a função inteira; com a opção marcada, a diferença aparece.</p>`,
+        },
+        {
+            id: 'ra',
+            title: 'Alocação de registradores',
+            html: `
+<p>Com a opção <strong>Alocação de registradores</strong>, abaixo do editor, o gerador de código troca a estratégia simples (temporários em <code>t</code> só dentro do bloco, o resto no quadro) pela <strong>alocação por varredura linear</strong> (<em>linear scan</em>, de Poletto e Sarkar), a mesma ideia do alocador rápido do LLVM para <code>-O0</code> e de muitos compiladores JIT:</p>
+<ol>
+    <li>as instruções da função são numeradas na ordem do código, e cada valor da IR ganha um <strong>intervalo de vida</strong>: da definição até o último uso, estendido pelos blocos em que o valor está vivo (uma análise de vivacidade com as <code>phi</code>);</li>
+    <li>os intervalos são percorridos em ordem de início; cada um recebe um registrador livre, e os que já terminaram devolvem o seu;</li>
+    <li>sem registrador livre, vai para o quadro (<strong>spill</strong>) o valor cujo intervalo termina mais tarde, e quem fica no quadro é lido e escrito com registradores auxiliares.</li>
+</ol>
+<table>
+    <tr><th>Registradores</th><th>Uso com a alocação</th></tr>
+    <tr><td><code>t0</code> a <code>t3</code>, <code>ft0</code> a <code>ft9</code></td><td>valores que não atravessam chamadas (salvos por quem chama)</td></tr>
+    <tr><td><code>s1</code> a <code>s11</code>, <code>fs0</code> a <code>fs11</code></td><td>também valores vivos durante uma chamada; a função salva no prólogo e restaura no epílogo os que usar (salvos por quem é chamado)</td></tr>
+    <tr><td><code>t4</code> a <code>t6</code>, <code>ft10</code>, <code>ft11</code></td><td>auxiliares: valores no quadro, constantes, cópias das <code>phi</code></td></tr>
+</table>
+<p>As <code>phi</code> viram cópias entre registradores no fim de cada predecessor, feitas como uma <strong>cópia paralela</strong> (um ciclo como <code>a, b = b, a</code> passa por um auxiliar). Os argumentos ficam no registrador em que chegaram até serem movidos para o seu.</p>
+<p>A aba <strong>Pilha</strong> mostra, abaixo do quadro, o intervalo e o registrador de cada valor; o quadro ganha as posições dos registradores <code>s</code> salvos e dos valores derramados. O efeito aparece no quadro Execução: na forma SSA, a alocação corta as instruções executadas da multiplicação de matrizes de 1111 para 641, e os ciclos no pipeline de 1764 para 1014. No <code>-O0</code> o ganho é pequeno, porque cada variável continua na memória; é a combinação de mem2reg e alocação que tira as variáveis da pilha.</p>`,
+        },
+        {
+            id: 'sched',
+            title: 'Escalonamento de instruções',
+            html: `
+<p>O seletor <strong>Escalonamento</strong> reordena o assembly gerado, por <strong>escalonamento por lista</strong> (<em>list scheduling</em>) em cada trecho reto do código (entre rótulos, desvios e chamadas). Cada instrução depende das anteriores que escrevem um registrador que ela lê (com a latência de quem produz: 2 ciclos para <code>lw</code>, 4 para <code>mul</code>, 5 para <code>fmul.s</code>...), que leem ou escrevem um registrador que ela escreve, e dos acessos à memória que podem ser no mesmo endereço (mesma base com deslocamentos que se cruzam, ou bases diferentes). Entre as instruções prontas, sai primeiro a de maior altura: o caminho mais longo, em ciclos, até o fim do trecho.</p>
+<dl>
+    <dt>para o pipeline</dt><dd>Uma instrução por ciclo: afasta do seu uso o resultado de um <code>load</code> (que custaria uma bolha no pipeline de 5 estágios) e das operações longas.</dd>
+    <dt>emissão dupla (pares)</dt><dd>Monta pacotes de duas instruções, como a emissão dupla estática do livro de Patterson e Hennessy (seção 4.10): uma de ALU ou desvio e um <code>load</code> ou <code>store</code>, independentes entre si, lado a lado no código, para o modelo de emissão dupla do simulador de processadores.</dd>
+</dl>
+<p>Os ganhos aqui são modestos e às vezes nulos, por dois motivos que valem a discussão em aula. Os blocos dos exemplos são curtos, e não há muito o que reordenar. E o escalonamento vem depois da alocação de registradores: quando o alocador reaproveita um registrador, cria uma dependência falsa (escrita depois de leitura) que prende a ordem. Esse é o <strong>problema da ordem das fases</strong>: alocar antes limita o escalonamento, e escalonar antes aumenta a pressão sobre os registradores; compiladores reais escalonam antes e depois da alocação. Os maiores ganhos estão nos laços com várias operações independentes, como <em>Filtro de média</em> e <em>SAXPY</em>. A linha <strong>Ciclos na emissão dupla</strong> do quadro Execução mostra o efeito.</p>`,
         },
         {
             id: 'cfg',
@@ -186,6 +232,8 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
 <p>A aba <strong>Fluxo de dados</strong> desenha o <strong>grafo de fluxo de dados</strong> (DFG) de um bloco básico. Cada instrução é um nó; uma seta cheia liga quem define um valor a quem o usa, e uma seta tracejada mantém a ordem entre acessos à memória que podem ser no mesmo endereço (um <code>load</code> não passa à frente de um <code>store</code> anterior, e uma chamada pode ler ou escrever qualquer variável cujo endereço escapou). Valores que vêm de outros blocos aparecem como elipses no alto.</p>
 <p>O desenho está em escala de tempo: cada instrução começa no primeiro ciclo em que todos os seus operandos estão prontos (<strong>escalonamento ASAP</strong>, com unidades funcionais à vontade), e a altura da caixa é a sua latência, a mesma do simulador de processadores. O <strong>caminho crítico</strong>, destacado, é a cadeia mais longa: nenhum processador termina o bloco em menos ciclos que isso. A tabela traz também o início mais tarde possível sem atrasar o bloco (<strong>ALAP</strong>) e a <strong>folga</strong> de cada instrução; as instruções sem folga são as do caminho crítico.</p>
 <p>A razão entre a soma das latências e o caminho crítico é o paralelismo disponível no bloco, o limite do que um processador superescalar ou com despacho duplo pode aproveitar. Compare o mesmo bloco com e sem a mem2reg: os <code>load</code> e <code>store</code> das variáveis somem, e o caminho crítico encurta.</p>
+<h3>Escalonamento com recursos (síntese de alto nível)</h3>
+<p>O seletor <strong>Escalonamento</strong> da aba troca o ASAP por outras estratégias usadas na <strong>síntese de alto nível</strong> (HLS), que transforma um programa em um circuito: <strong>ALAP</strong> (o mais tarde possível) e <strong>por lista com recursos limitados</strong>. No escalonamento por lista, cada passo de controle tem um número limitado de unidades de cada classe (ALU, multiplicador, memória, ponto flutuante); as instruções prontas disputam as unidades, com prioridade para a de menor folga. Com <strong>unidades com pipeline</strong>, uma unidade aceita uma operação nova a cada passo; sem pipeline, fica ocupada durante toda a latência. O resumo compara o número de passos com o ASAP e mostra o uso de cada unidade: é a troca entre área (unidades) e tempo (passos) que uma ferramenta de HLS explora.</p>
 <p>A tabela de definições e usos lista, para cada valor da função, onde ele é definido e onde é usado (para uma <code>phi</code>, também de qual bloco o valor vem).</p>`,
         },
         {
@@ -230,7 +278,7 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
             id: 'cpu',
             title: 'Execução e simulador de processadores',
             html: `
-<p>O quadro <strong>Execução</strong> mostra o valor de retorno de <code>main</code>, quantas instruções RISC-V e quantas instruções da IR foram executadas, o tamanho do código gerado e o valor final das variáveis globais. A razão entre instruções executadas e instruções da IR mostra o custo de compilar sem otimização.</p>
+<p>O quadro <strong>Execução</strong> mostra o valor de retorno de <code>main</code>, quantas instruções RISC-V e quantas instruções da IR foram executadas, o tamanho do código gerado e o valor final das variáveis globais. A razão entre instruções executadas e instruções da IR mostra o custo de compilar sem otimização. As linhas de <strong>ciclos</strong> trazem o tempo do mesmo assembly nos modelos com pipeline e com emissão dupla do simulador de processadores (enquanto você digita, a simulação para em 5 mil ciclos; o botão Compilar e executar usa 100 mil).</p>
 <p><strong>Abrir no simulador de processadores</strong> abre, em uma nova aba, o Simulador de Processadores RISC-V com o assembly gerado, no modelo com pipeline. Lá é possível ver os conflitos, os adiantamentos, as bolhas e o efeito das cópias de e para a pilha no tempo de execução.</p>`,
         },
         {

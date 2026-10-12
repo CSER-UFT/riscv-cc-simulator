@@ -74,7 +74,8 @@ export function blockCounts(F, counts) {
 export function simulateProfile(asmText, { model = 'pipeline', caches = false, maxCycles = 100000 } = {}) {
     const program = assemble(asmText);
     if (program.errors.length) return { errors: program.errors };
-    const sim = simulate(program, { mode: model, trace: false, maxCycles, exampleValues: false, memory: { enabled: caches } });
+    // O simulador aceita no máximo 100 mil ciclos (acima disso, voltaria ao padrão de mil).
+    const sim = simulate(program, { mode: model, trace: false, maxCycles: Math.min(maxCycles, 100000), exampleValues: false, memory: { enabled: caches } });
     if (sim.errors?.length) return { errors: sim.errors };
     const per = program.instructions.map(() => ({ exec: 0, cycles: 0, stalls: 0, squashed: 0 }));
     const done = sim.dyn.filter((d) => d.commit !== null && d.squashed === null).sort((a, b) => a.commit - b.commit || a.id - b.id);

@@ -169,3 +169,57 @@ export function defUse(F) {
     for (const r of at.values()) rows.push(r);
     return rows;
 }
+
+/** Classe de unidade funcional de cada classe de instrução, no escalonamento com recursos (estilo HLS). */
+export const UNIT_OF = { alu: 'alu', branch: 'alu', mul: 'mul', div: 'mul', load: 'mem', store: 'mem', call: 'mem', fadd: 'fpu', fmul: 'fpu', fdiv: 'fpu', phi: null };
+export const UNITS = ['alu', 'mul', 'mem', 'fpu'];
+
+/**
+ * Escalonamento por lista com recursos limitados, como na síntese de alto nível: a cada passo de controle,
+ * as instruções prontas disputam as unidades da sua classe; tem prioridade a de menor início ALAP (menor folga).
+ * Com unidades em pipeline, uma unidade aceita uma operação nova a cada passo; sem pipeline, fica ocupada
+ * durante toda a latência.
+ * @param {object} g saída de blockDfg
+ * @param {{alu: number, mul: number, mem: number, fpu: number}} res
+ * @returns {object} cópia de g com start, unit e length do escalonamento
+ */
+export function listSchedule(g, res, { pipelined = false } = {}) {
+    const nodes = g.nodes.map((n) => ({ ...n }));
+    const busy = Object.fromEntries(UNITS.map((u) => [u, Array.from({ length: Math.max(1, res[u] ?? 1) }, () => -1)]));
+    const done = new Set();
+    // O desvio do fim do bloco é a troca de estado da máquina de controle: fica no último passo do bloco,
+    // junto com as operações que terminam por último (por isso é tentado de novo depois das outras do passo).
+    const isTerm = (n) => ['br', 'condbr', 'ret'].includes(n.inst.op);
+    const lastStep = (n, t) => nodes.every((m) => m === n || (done.has(m.id) && m.start + m.lat <= t + 1));
+    const place = (t, terms) => {
+        const ready = nodes.filter((n) => !done.has(n.id) && isTerm(n) === terms && (!terms || lastStep(n, t))
+            && n.preds.every((p) => done.has(p) && nodes[p].start + nodes[p].lat <= t))
+            .sort((a, b) => a.alap - b.alap || a.id - b.id);
+        for (const n of ready) {
+            const u = UNIT_OF[n.cls];
+            if (!u) { n.start = t; n.unit = null; done.add(n.id); continue; }
+            const k = busy[u].findIndex((until) => until < t);
+            if (k < 0) continue;
+            busy[u][k] = pipelined ? t : t + Math.max(1, n.lat) - 1;
+            n.start = t;
+            n.unit = `${u}${k}`;
+            done.add(n.id);
+        }
+    };
+    for (let t = 0; done.size < nodes.length && t <= 100000; t++) {
+        place(t, false);
+        place(t, true);
+    }
+    const length = Math.max(0, ...nodes.map((n) => n.start + n.lat));
+    const use = {};
+    for (const u of UNITS) {
+        const work = nodes.filter((n) => UNIT_OF[n.cls] === u).reduce((s, n) => s + (pipelined ? 1 : Math.max(1, n.lat)), 0);
+        use[u] = length ? work / ((res[u] ?? 1) * length) : 0;
+    }
+    return { ...g, nodes, length, use, res, pipelined };
+}
+
+/** Escalonamento mais tarde possível (ALAP), com recursos ilimitados. */
+export function alapSchedule(g) {
+    return { ...g, nodes: g.nodes.map((n) => ({ ...n, start: n.alap })) };
+}

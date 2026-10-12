@@ -66,7 +66,7 @@ export function layoutDfg(g, summaryLen = 90) {
  * @param {object} lay saída de layoutDfg
  * @param {{selected?: number|null, tr: Function}} opts
  */
-export function dfgSvg(g, lay, { selected = null, tr }) {
+export function dfgSvg(g, lay, { selected = null, tr, summary = null }) {
     const { nodes, inputs, width, height } = lay;
     const near = new Set();
     if (selected !== null) {
@@ -109,9 +109,10 @@ export function dfgSvg(g, lay, { selected = null, tr }) {
         const cls = ['op', `c-${n.cls}`, n.critical ? 'crit' : '', n.id === selected ? 'sel' : '', selected !== null && !near.has(n.id) ? 'dim' : ''].filter(Boolean).join(' ');
         s += `<g class="node" data-id="${n.id}"><title>${esc(n.text)}</title><rect class="${cls}" x="${it.x - it.w / 2}" y="${it.top}" width="${it.w}" height="${it.h}" rx="5"/>`;
         s += `<text class="mono small${n.critical ? ' bold' : ''}" x="${it.x}" y="${it.top + Math.min(it.h / 2 + 4, 15)}" text-anchor="middle">${esc(it.label)}</text>`;
-        if (it.h >= 30) s += `<text class="small muted" x="${it.x}" y="${it.top + 28}" text-anchor="middle">${esc(tr('dfg.lat', { n: n.lat }))}</text>`;
+        if (it.h >= 30) s += `<text class="small muted" x="${it.x}" y="${it.top + 28}" text-anchor="middle">${esc(n.unit ? `${n.unit} · ${tr('dfg.lat', { n: n.lat })}` : tr('dfg.lat', { n: n.lat }))}</text>`;
+        else if (n.unit) s += `<title>${esc(n.unit)}</title>`;
         s += '</g>';
     }
-    s += `<text class="small bold" x="${PAD + AXIS}" y="${height - 12}">${esc(tr('dfg.summary', { len: g.length, sum: g.seqSum, ilp: g.length ? (g.seqSum / g.length).toFixed(2) : '-' }))}</text>`;
+    s += `<text class="small bold" x="${PAD + AXIS}" y="${height - 12}">${esc(summary ?? tr('dfg.summary', { len: g.length, sum: g.seqSum, ilp: g.length ? (g.seqSum / g.length).toFixed(2) : '-' }))}</text>`;
     return `${s}</svg>`;
 }

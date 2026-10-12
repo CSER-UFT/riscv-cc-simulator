@@ -636,6 +636,8 @@ main select, main input { font: inherit; font-size: 0.85rem; color: var(--ink); 
 .code-box { margin-top: 2px; height: 420px; }
 .opts label { display: inline-flex; align-items: center; gap: 4px; margin: 6px 12px 0 0; }
 .opts input { padding: 0; }
+.src-pick label { margin: 0; }
+.phases .ph.skip { opacity: .45; text-decoration: line-through; }
 
 table { border-collapse: collapse; font-size: 13px; width: 100%; }
 th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: center; }
@@ -708,6 +710,8 @@ ul.errors li.warn { color: var(--focus); }
 .fig-svg .slot.k-local { fill: var(--c-exec); }
 .fig-svg .slot.k-array { fill: var(--c-mem); }
 .fig-svg .slot.k-temp { fill: var(--c-write); }
+.fig-svg .slot.k-saved { fill: var(--c-commit); fill-opacity: .55; }
+.fig-svg .slot.k-spill { fill: var(--c-write); fill-opacity: .55; }
 .fig-svg .slot.k-pad { fill: var(--panel-2); stroke-dasharray: 4 3; }
 .fig-svg .slot.sel { stroke: var(--accent); stroke-width: 2.4; }
 .fig-svg .caller { fill: var(--panel-2); stroke: var(--line-strong); stroke-dasharray: 5 3; }
@@ -797,3 +801,4 @@ label.check { display: inline-flex; align-items: center; gap: 4px; }
 .fig-svg .pt { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; }
 #pane-opt .graph-pair { grid-template-columns: 1fr; }
 #pane-opt .graph-pair .fig-box { margin-top: 0; }
+.tabs [hidden] { display: none; }

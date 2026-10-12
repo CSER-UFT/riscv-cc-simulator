@@ -17,13 +17,17 @@
  */
 import { numberValues, valueText, instText } from './irgen.js';
 import { str } from './types.js';
+import { genFunctionRA } from './codegen-ra.js';
+import { scheduleLines } from './sched.js';
 
 const INT_POOL = ['t0', 't1', 't2', 't3', 't4', 't5'];
 const FP_POOL = ['ft0', 'ft1', 'ft2', 'ft3', 'ft4', 'ft5', 'ft6', 'ft7'];
 const SCRATCH = 't6';
 
-const fits12 = (v) => v >= -2048 && v <= 2047;
-const isFloatTy = (ty) => ty === 'float';
+export const fits12 = (v) => v >= -2048 && v <= 2047;
+/** Nome de um parâmetro nas notas: os sem nome (numerados, de um .ll) aparecem como %n. */
+export const argName = (p) => (/^\d+$/.test(p.name) ? `%${p.name}` : p.name);
+export const isFloatTy = (ty) => ty === 'float';
 
 /** Representação decimal mais curta que reproduz o float de 32 bits. */
 export function f32Text(v) {
@@ -38,14 +42,14 @@ export function f32Text(v) {
     return String(v);
 }
 
-const BRANCH = { slt: 'blt', sle: 'ble', sgt: 'bgt', sge: 'bge', eq: 'beq', ne: 'bne', ult: 'bltu', ule: 'bleu', ugt: 'bgtu', uge: 'bgeu' };
-const INVERT = { slt: 'sge', sge: 'slt', sle: 'sgt', sgt: 'sle', eq: 'ne', ne: 'eq', ult: 'uge', uge: 'ult', ule: 'ugt', ugt: 'ule' };
-const IREG = { add: 'add', sub: 'sub', mul: 'mul', sdiv: 'div', srem: 'rem', and: 'and', or: 'or', xor: 'xor', shl: 'sll', ashr: 'sra' };
-const IIMM = { add: 'addi', and: 'andi', or: 'ori', xor: 'xori', shl: 'slli', ashr: 'srai' };
-const FOP = { fadd: 'fadd.s', fsub: 'fsub.s', fmul: 'fmul.s', fdiv: 'fdiv.s' };
+export const BRANCH = { slt: 'blt', sle: 'ble', sgt: 'bgt', sge: 'bge', eq: 'beq', ne: 'bne', ult: 'bltu', ule: 'bleu', ugt: 'bgtu', uge: 'bgeu' };
+export const INVERT = { slt: 'sge', sge: 'slt', sle: 'sgt', sgt: 'sle', eq: 'ne', ne: 'eq', ult: 'uge', uge: 'ult', ule: 'ugt', ugt: 'ule' };
+export const IREG = { add: 'add', sub: 'sub', mul: 'mul', sdiv: 'div', srem: 'rem', and: 'and', or: 'or', xor: 'xor', shl: 'sll', ashr: 'sra' };
+export const IIMM = { add: 'addi', and: 'andi', or: 'ori', xor: 'xori', shl: 'slli', ashr: 'srai' };
+export const FOP = { fadd: 'fadd.s', fsub: 'fsub.s', fmul: 'fmul.s', fdiv: 'fdiv.s' };
 
 /** Operandos (valores lidos) de uma instrução da IR, sem contar as phi. */
-function operands(i) {
+export function operands(i) {
     switch (i.op) {
         case 'alloca': case 'br': case 'phi': return [];
         case 'load': return [i.ptr];
@@ -84,7 +88,8 @@ export function generateAsm(module, opts = {}) {
     line('    ecall', { note: mainFloat ? 'end.fa0' : 'end.a0' });
 
     const frames = [];
-    for (const F of module.functions) frames.push(genFunction(F, line, poolLabel, { irComments, srcComments, srcLines }));
+    const gen = opts.regalloc ? genFunctionRA : genFunction;
+    for (const F of module.functions) frames.push(gen(F, line, poolLabel, { irComments, srcComments, srcLines }));
 
     if (module.globals.length || floatPool.size) {
         line('');
@@ -105,7 +110,13 @@ export function generateAsm(module, opts = {}) {
             line(`    .float ${f32Text(v)}`, { note: 'pool' });
         }
     }
-    return { out, frames, mainFloat, render: (tr) => render(out, tr) };
+    let moved = 0;
+    if (opts.schedule && opts.schedule !== 'none') {
+        const r = scheduleLines(out, opts.schedule);
+        out.splice(0, out.length, ...r.out);
+        moved = r.moved;
+    }
+    return { out, frames, mainFloat, moved, render: (tr) => render(out, tr) };
 }
 
 /**
@@ -142,8 +153,8 @@ function genFunction(F, emitLine, poolLabel, opts) {
     for (const a of F.allocas) {
         bottom -= a.bytes;
         allocaOff.set(a.dst, bottom);
-        const t = a.sym.type;
-        slots.push({ name: a.sym.name, off: bottom, size: a.bytes, kind: a.sym.kind === 'param' ? 'param' : t.k === 'array' ? 'array' : 'local', ty: str(t), ir: valueText(a.dst), sym: a.sym.id });
+        const t = a.sym?.type;
+        slots.push({ name: a.sym?.name ?? valueText(a.dst), off: bottom, size: a.bytes, kind: a.sym?.kind === 'param' ? 'param' : t?.k === 'array' ? 'array' : 'local', ty: t ? str(t) : a.allocTy, ir: valueText(a.dst), sym: a.sym?.id });
     }
     const slotOff = new Map();
     const slotOf = (v) => {
@@ -388,7 +399,7 @@ function genFunction(F, emitLine, poolLabel, opts) {
         comment = null;
         mem(isFloatTy(p.ty) ? 'fsw' : 'sw', argReg.get(p.value), 's0', slotOf(p.value));
         body[body.length - 1].note = 'arg';
-        body[body.length - 1].noteArgs = { name: p.name };
+        body[body.length - 1].noteArgs = { name: argName(p) };
     }
     F.blocks.forEach((b, bi) => {
         if (bi > 0) emitLabel(`${label(b.label)}:`, { fn: F.name, block: b.label });

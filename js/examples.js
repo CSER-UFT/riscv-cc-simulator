@@ -312,3 +312,28 @@ int main() {
 `,
     },
 ];
+
+/** Comentários dos exemplos em inglês (o código é o mesmo; só os comentários mudam). */
+const EN_COMMENTS = {
+    'Soma dos elementos de um vetor global.': 'Sum of the elements of a global array.',
+    'O vetor é passado como ponteiro para o primeiro elemento.': 'The array is passed as a pointer to its first element.',
+    'p + n aponta para depois do último; *p++ lê e avança.': 'p + n points past the last one; *p++ reads and advances.',
+    'Passagem por referência: a função recebe os endereços.': 'Pass by reference: the function receives the addresses.',
+    'Cada chamada cria um registro de ativação na pilha.': 'Each call creates an activation record on the stack.',
+    'Ordena o vetor global e devolve os seis valores como dígitos.': 'Sorts the global array and returns the six values as digits.',
+    'y = a * x + y, com vetores de float.': 'y = a * x + y, with float arrays.',
+    'Matrizes 3x3 guardadas linha por linha em vetores: A[i][j] = A[i * N + j].': '3x3 matrices stored row by row in arrays: A[i][j] = A[i * N + j].',
+    'O lado direito de && só é avaliado se o esquerdo for verdadeiro.': 'The right side of && is only evaluated if the left one is true.',
+    'Na IR, o resultado vem de uma função phi.': 'In the IR, the result comes from a phi function.',
+    '2: o segundo positivo(a) não roda': '2: the second positivo(a) does not run',
+    'main pode retornar float: o resultado fica em fa0.': 'main can return float: the result goes in fa0.',
+    'Bom para a aba Otimizações: perfuração de laço e redução de precisão.': 'Good for the Optimizations tab: loop perforation and reduced precision.',
+    'Suaviza um sinal com a média de três vizinhos, como um filtro de imagem.': 'Smooths a signal with the mean of three neighbors, like an image filter.',
+    'Produto escalar de inteiros. Bom para a multiplicação aproximada.': 'Integer dot product. Good for approximate multiplication.',
+};
+
+/** Código do exemplo no idioma pedido. */
+export function exampleCode(ex, lang = 'pt') {
+    if (lang !== 'en') return ex.code;
+    return ex.code.replace(/\/\/ (.*)$/gm, (m, c) => `// ${EN_COMMENTS[c.trim()] ?? c}`);
+}

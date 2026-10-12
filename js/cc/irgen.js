@@ -469,7 +469,13 @@ function floatText(v) {
 
 /** Nomeia os temporários sem nome (%0, %1...) na ordem em que aparecem no texto. */
 export function numberValues(F) {
+    // Os nomes numéricos que já existem (IR importada de um .ll) não podem ser repetidos.
     let n = 0;
+    for (const p of F.params) if (/^\d+$/.test(p.name)) n = Math.max(n, Number(p.name) + 1);
+    for (const b of F.blocks) {
+        if (/^\d+$/.test(b.label)) n = Math.max(n, Number(b.label) + 1);
+        for (const i of b.insts) if (i.dst && /^\d+$/.test(i.dst.name ?? '')) n = Math.max(n, Number(i.dst.name) + 1);
+    }
     for (const b of F.blocks) for (const i of b.insts) if (i.dst && i.dst.name === null) i.dst.n = n++;
 }
 

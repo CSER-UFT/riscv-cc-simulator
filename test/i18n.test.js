@@ -22,3 +22,14 @@ test('toda chave usada no código existe', () => {
     const missing = [...used].filter((k) => k.includes('.') && !(k in pt));
     assert.deepEqual(missing, []);
 });
+
+test('exemplos em inglês: só os comentários mudam', async () => {
+    const { EXAMPLES, exampleCode } = await import('../js/examples.js');
+    const { lex } = await import('../js/cc/lexer.js');
+    for (const e of EXAMPLES) {
+        const en = exampleCode(e, 'en');
+        const toks = (s) => lex(s).tokens.map((k) => k.text).join(' ');
+        assert.equal(toks(en), toks(e.code), e.id);
+        for (const m of en.matchAll(/\/\/ (.*)$/gm)) assert.doesNotMatch(m[1], /[ãõçáéíóúâêô]/, `${e.id}: ${m[1]}`);
+    }
+});

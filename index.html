@@ -31,8 +31,11 @@
         <main>
             <div>
                 <section>
-                    <h2 data-i18n="src.title">Código MiniC</h2>
-                    <label><span data-i18n="cfg.example">Exemplo</span> <select id="example"></select></label>
+                    <h2 id="srcTitle">Código MiniC</h2>
+                    <div class="row src-pick">
+                        <label><span data-i18n="src.lang">Linguagem</span> <select id="srcLang"><option value="c">MiniC</option><option value="ll" data-i18n="src.llOption">IR do LLVM (.ll)</option></select></label>
+                        <label><span data-i18n="cfg.example">Exemplo</span> <select id="example"></select></label>
+                    </div>
                     <div class="code-box">
                         <pre id="gutter" class="code-gutter" aria-hidden="true"></pre>
                         <div class="code-area">
@@ -50,6 +53,10 @@
                     <div class="row opts">
                         <label><input type="checkbox" id="optIr" checked /> <span data-i18n="opt.ir">Comentários com a IR</span></label>
                         <label><input type="checkbox" id="optSrc" checked /> <span data-i18n="opt.src">Linhas do código fonte</span></label>
+                    </div>
+                    <div class="row opts">
+                        <label data-i18n-title="opt.raHelp"><input type="checkbox" id="optRA" /> <span data-i18n="opt.ra">Alocação de registradores</span></label>
+                        <label style="margin:0" data-i18n-title="opt.schedHelp"><span data-i18n="opt.sched">Escalonamento</span> <select id="optSched"><option value="none" data-i18n="sched.none">nenhum</option><option value="pipeline" data-i18n="sched.pipeline">para o pipeline</option><option value="dual" data-i18n="sched.dual">emissão dupla</option></select></label>
                     </div>
                     <label><span data-i18n="opt.level">IR</span> <select id="irLevel"><option value="O0" data-i18n="level.O0">sem otimização (-O0)</option><option value="ssa" data-i18n="level.ssa">depois da mem2reg (SSA)</option><option value="opt" data-i18n="level.opt">otimizada (aba Otimizações)</option></select></label>
                 </section>
@@ -116,6 +123,11 @@
                             <button type="button" class="btn outline" id="frameTex" data-i18n="exp.tex">Tabela em LaTeX</button>
                         </div>
                         <div class="fig-box" id="frameFig"></div>
+                        <div id="raBox" class="hidden">
+                            <h3 style="margin-top:12px" data-i18n="ra.title">Alocação de registradores (linear scan)</h3>
+                            <p class="note" data-i18n="ra.note"></p>
+                            <div class="scroll-box"><table id="raTable"></table></div>
+                        </div>
                     </div>
 
                     <div class="pane" id="pane-cfg">
@@ -149,6 +161,14 @@
                             <button type="button" class="btn outline" id="dfgSvgBtn" data-i18n="exp.dfgSvg">DFG (SVG)</button>
                             <button type="button" class="btn outline" id="dfgDotBtn" data-i18n="exp.dfgDot">DFG (DOT)</button>
                             <button type="button" class="btn outline" id="dfgTexBtn" data-i18n="exp.tex">Tabela em LaTeX</button>
+                        </div>
+                        <div class="row" style="margin-top:8px">
+                            <label style="margin:0"><span data-i18n="dfg.sched">Escalonamento</span> <select id="dfgSched">
+                                <option value="asap" data-i18n="dfg.s.asap"></option>
+                                <option value="alap" data-i18n="dfg.s.alap"></option>
+                                <option value="list" data-i18n="dfg.s.list"></option>
+                            </select></label>
+                            <span id="hlsRes" class="row hidden"><label style="margin:0"><span data-i18n="unit.alu"></span> <input type="number" id="res-alu" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.mul"></span> <input type="number" id="res-mul" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.mem"></span> <input type="number" id="res-mem" min="1" max="16" value="1" style="width:52px" /></label><label style="margin:0"><span data-i18n="unit.fpu"></span> <input type="number" id="res-fpu" min="1" max="16" value="1" style="width:52px" /></label><label class="check" style="margin:0"><input type="checkbox" id="resPipe" /> <span data-i18n="dfg.pipelined">unidades com pipeline</span></label></span>
                         </div>
                         <div class="fig-box" id="dfgFig"></div>
                         <p class="note" id="dfgLat"></p>
