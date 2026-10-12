@@ -40,9 +40,17 @@ int main() {
     int t = ${expr(r, 4)};
     float u = ${expr(r, 3)};
     if (${expr(r, 2)}) t = t + ${expr(r, 3)};
-    return t + u;
+    for (int k = 0; k < ${r(4)}; k++) {
+        int w = a; a = b; b = w + ${expr(r, 1)};
+        if (${expr(r, 1)}) { x = x + y; continue; }
+        if (b > ${r(50)}) break;
+        y = u;
+    }
+    return t + u + a + b + x + y;
 }`;
         const res = both(src);
         assert.equal(res.asm.ret, res.ir.ret, src);
+        assert.equal(res.ssaIr.ret, res.ir.ret, src);
+        assert.equal(res.ssaAsm.ret, res.ir.ret, src);
     }
 });

@@ -7,6 +7,7 @@ import { parse } from './parser.js';
 import { analyze } from './sema.js';
 import { generateIR, printModule } from './irgen.js';
 import { generateAsm } from './codegen.js';
+import { mem2regModule } from './mem2reg.js';
 
 /**
  * @param {string} source código MiniC
@@ -30,12 +31,22 @@ export function compile(source, opts = {}) {
     r.phase = 'ir';
     r.module = generateIR(P.ast, S);
     r.ir = printModule(r.module);
+    // A mesma IR depois da mem2reg (forma SSA), com o seu próprio assembly.
+    const M = mem2regModule(r.module);
+    r.ssa = { module: M.module, report: M.report, ir: printModule(M.module) };
     r.phase = 'asm';
-    const A = generateAsm(r.module, { source, irComments: opts.irComments, srcComments: opts.srcComments });
+    const gen = (module) => {
+        const A = generateAsm(module, { source, irComments: opts.irComments, srcComments: opts.srcComments });
+        return { frames: A.frames, out: A.out, asm: A.render(opts.tr ?? null), mainFloat: A.mainFloat };
+    };
+    const A = gen(r.module);
     r.frames = A.frames;
     r.mainFloat = A.mainFloat;
     r.asmOut = A.out;
-    r.asm = A.render(opts.tr ?? null);
+    r.asm = A.asm;
+    const B = gen(r.ssa.module);
+    r.ssa.frames = B.frames;
+    r.ssa.asm = B.asm;
     r.phase = 'done';
     return r;
 }

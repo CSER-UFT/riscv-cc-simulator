@@ -481,6 +481,7 @@ export function valueText(v) {
             if (v.ty === 'ptr') return 'null';
             return String(v.v);
         case 'global': return `@${v.name}`;
+        case 'undef': return 'undef';
         default: return v.name !== null ? `%${v.name}` : `%${v.n}`;
     }
 }

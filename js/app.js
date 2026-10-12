@@ -10,7 +10,13 @@ import { EXAMPLES } from './examples.js';
 import { minicLines, irLine, asmLine, esc } from './ui/highlight.js';
 import { layoutTree, astSvg } from './ui/ast-svg.js';
 import { frameSvg } from './ui/frame-svg.js';
-import { tokensTex, symbolsTex, frameTex } from './ui/latex.js';
+import { analyzeCfg } from './cc/cfg.js';
+import { blockDfg, defUse, LATENCY } from './cc/dfg.js';
+import { valueText } from './cc/irgen.js';
+import { layoutCfg, cfgSvg, domTreeSvg } from './ui/cfg-svg.js';
+import { layoutDfg, dfgSvg, shortText } from './ui/dfg-svg.js';
+import { cfgDot, domDot, dfgDot } from './ui/dot.js';
+import { tokensTex, symbolsTex, frameTex, domTex, dfgTex } from './ui/latex.js';
 import { standaloneSvg } from './ui/svg-export.js';
 import { Help } from './ui/help.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
@@ -29,6 +35,12 @@ let tab = store.get('cc.tab') || 'code';
 let selection = { from: null, src: null, ir: null, asm: null };
 let mark = null;                 // trecho do fonte em destaque: {start, end}
 let errorLines = new Set();
+let level = store.get('cc.level') === 'ssa' ? 'ssa' : 'O0';   // IR mostrada: sem otimização ou depois da mem2reg
+
+/** IR, assembly e quadros do nível escolhido. */
+function V() {
+    return level === 'ssa' ? last.ssa : { module: last.module, ir: last.ir, asm: last.asm, frames: last.frames, report: null };
+}
 
 // Editor -----------------------------------------------------------------------------------------------------
 
@@ -155,6 +167,8 @@ function runCompile() {
     if (c.phase === 'done') {
         c.interp = interpret(c.module, { maxSteps: RUN_LIMIT });
         c.run = runAsm(c, { maxInstructions: RUN_LIMIT });
+        c.ssaInterp = interpret(c.ssa.module, { maxSteps: RUN_LIMIT });
+        c.ssaRun = runAsm({ ...c, module: c.ssa.module, asm: c.ssa.asm }, { maxInstructions: RUN_LIMIT });
     }
     last = c;
     errorLines = new Set(c.errors.map((e) => e.line));
@@ -169,6 +183,8 @@ function runCompile() {
     renderCode();
     renderFrames();
     renderRun();
+    renderCfg();
+    renderDfg();
     showTab(tab);
     renderSelection();
 }
@@ -197,12 +213,15 @@ function renderRun() {
     const reg = last.mainFloat ? 'fa0' : 'a0';
     const limit = r.reason !== 'end';
     const mismatch = !limit && last.interp.reason === 'end' && !Object.is(last.interp.ret, r.ret) && !(Number.isNaN(last.interp.ret) && Number.isNaN(r.ret));
+    const q = last.ssaRun;
     let h = '<table class="kv">';
-    h += `<tr><th>${t('run.ret')}</th><td class="mono big">${limit ? '-' : esc(fmt(r.ret))} <span class="note">(${reg})</span></td></tr>`;
-    h += `<tr><th>${t('run.asmExec')}</th><td>${r.executed}</td></tr>`;
-    h += `<tr><th>${t('run.irExec')}</th><td>${last.interp.steps}</td></tr>`;
-    h += `<tr><th>${t('run.static')}</th><td>${r.program.instructions.length}</td></tr>`;
+    h += `<tr><th>${t('run.ret')}</th><td class="mono big" colspan="2">${limit ? '-' : esc(fmt(r.ret))} <span class="note">(${reg})</span></td></tr>`;
+    h += `<tr><th></th><td class="note">${t('run.colO0')}</td><td class="note">${t('run.colSsa')}</td></tr>`;
+    h += `<tr><th>${t('run.asmExec')}</th><td>${r.executed}</td><td>${q.errors.length ? '-' : q.executed}</td></tr>`;
+    h += `<tr><th>${t('run.irExec')}</th><td>${last.interp.steps}</td><td>${last.ssaInterp.steps}</td></tr>`;
+    h += `<tr><th>${t('run.static')}</th><td>${r.program.instructions.length}</td><td>${q.errors.length ? '-' : q.program.instructions.length}</td></tr>`;
     h += '</table>';
+    h += `<p class="note">${t('run.ssaNote')}</p>`;
     if (limit) h += `<p class="note warn">${t('run.limit', { n: RUN_LIMIT })}</p>`;
     if (mismatch) h += `<p class="note warn">${t('run.mismatch')}</p>`;
     if (r.globals.size) {
@@ -403,11 +422,25 @@ $('symTable').addEventListener('click', (e) => { const tr = e.target.closest('tr
 function renderCode() {
     if (last.phase !== 'done') { $('irView').innerHTML = ''; $('asmView').innerHTML = ''; $('codeStats').textContent = ''; return; }
     const view = (text, fn) => text.replace(/\n$/, '').split('\n').map((l, i) => `<div class="cl" data-i="${i}"><span class="ln">${i + 1}</span><span class="tx">${fn(l) || ' '}</span></div>`).join('');
-    $('irView').innerHTML = view(last.ir.text, irLine);
-    $('asmView').innerHTML = view(last.asm.text, asmLine);
+    const v = V();
+    $('irView').innerHTML = view(v.ir.text, irLine);
+    $('asmView').innerHTML = view(v.asm.text, asmLine);
+    $('irTitle').textContent = t(level === 'ssa' ? 'code.irSsa' : 'code.ir');
     let nIr = 0;
-    for (const F of last.module.functions) for (const b of F.blocks) nIr += b.insts.length;
-    $('codeStats').textContent = t('code.stats', { ir: nIr, asm: last.run?.program?.instructions.length ?? 0 });
+    for (const F of v.module.functions) for (const b of F.blocks) nIr += b.insts.length;
+    const run = level === 'ssa' ? last.ssaRun : last.run;
+    let stats = t('code.stats', { ir: nIr, asm: run?.program?.instructions.length ?? 0 });
+    if (level === 'ssa') {
+        const prom = [], kept = [];
+        let phis = 0;
+        for (const r of v.report) {
+            for (const x of r.promoted) { prom.push(x.name); phis += x.phis.length; }
+            kept.push(...r.kept);
+        }
+        const list = (a) => (a.length ? [...new Set(a)].join(', ') : t('code.none'));
+        stats += ` ${t('code.m2r', { promoted: list(prom), phis, kept: list(kept) })}`;
+    }
+    $('codeStats').textContent = stats;
 }
 
 function select(sel) {
@@ -420,7 +453,7 @@ function renderSelection() {
     refreshMarks();
     if (!last || last.phase !== 'done') return;
     const { from } = selection;
-    const irL = last.ir.lines, asmL = last.asm.lines;
+    const irL = V().ir.lines, asmL = V().asm.lines;
     let irSet = new Set(), asmSet = new Set();
     if (from === 'ir') {
         irSet.add(selection.ir);
@@ -455,7 +488,7 @@ for (const [id, kind] of [['irView', 'ir'], ['asmView', 'asm']]) {
         const row = e.target.closest('.cl');
         if (!row) return;
         const i = +row.dataset.i;
-        const src = (kind === 'ir' ? last.ir.lines : last.asm.lines)[i]?.src ?? null;
+        const src = (kind === 'ir' ? V().ir.lines : V().asm.lines)[i]?.src ?? null;
         select({ from: kind, [kind]: i, src });
         if (src) {
             const lines = code.value.split('\n');
@@ -470,16 +503,120 @@ function renderFrames() {
     const sel = $('frameFn');
     const prev = sel.value;
     if (!last.frames) { sel.innerHTML = ''; $('frameFig').innerHTML = ''; return; }
-    sel.innerHTML = last.frames.map((f) => `<option value="${esc(f.fn)}">${esc(f.fn)}</option>`).join('');
-    sel.value = last.frames.some((f) => f.fn === prev) ? prev : last.frames[0].fn;
+    const frames = V().frames;
+    sel.innerHTML = frames.map((f) => `<option value="${esc(f.fn)}">${esc(f.fn)}</option>`).join('');
+    sel.value = frames.some((f) => f.fn === prev) ? prev : frames[0].fn;
     drawFrame();
 }
-function currentFrame() { return last.frames?.find((f) => f.fn === $('frameFn').value) ?? null; }
+function currentFrame() { return last.frames ? V().frames.find((f) => f.fn === $('frameFn').value) ?? null : null; }
 function drawFrame() {
     const f = currentFrame();
     $('frameFig').innerHTML = f ? frameSvg(f, t) : '';
 }
 $('frameFn').onchange = drawFrame;
+
+// Fluxo de controle ------------------------------------------------------------------------------------------
+
+let cfgChoice = null, cfgBlock = null;
+/** Função mais interessante para os grafos: a que tem mais blocos. */
+const defaultFn = (fns) => [...fns].sort((a, b) => b.blocks.length - a.blocks.length)[0]?.name ?? '';
+function fillFnSelect(sel, choice) {
+    const fns = V().module.functions;
+    sel.innerHTML = fns.map((F) => `<option value="${esc(F.name)}">${esc(F.name)}</option>`).join('');
+    sel.value = fns.some((F) => F.name === choice) ? choice : defaultFn(fns);
+    return fns.find((F) => F.name === sel.value);
+}
+let cfgView = null;   // {F, cfg, layout}
+function renderCfg() {
+    if (last.phase !== 'done') { cfgView = null; return; }
+    const F = fillFnSelect($('cfgFn'), cfgChoice);
+    const cfg = analyzeCfg(F);
+    if (cfgBlock && !cfg.blocks.includes(cfgBlock)) cfgBlock = null;
+    cfgView = { F, cfg, layout: layoutCfg(F, cfg, $('cfgInsts').checked, t) };
+    drawCfg();
+    const list = (a) => a.map((x) => `<code>${esc(x)}</code>`).join(', ') || '-';
+    $('cfgTable').innerHTML = `<tr><th>${t('th.block')}</th><th>${t('th.preds')}</th><th>${t('th.succs')}</th><th>${t('th.idom')}</th><th>${t('th.doms')}</th><th>${t('th.df')}</th><th>${t('th.loop')}</th></tr>`
+        + cfg.rpo.map((b) => `<tr data-block="${esc(b)}"${b === cfgBlock ? ' class="cur"' : ''}><td class="mono left">${esc(b)}</td><td class="left">${list(cfg.pred.get(b))}</td><td class="left">${list(cfg.succ.get(b).map((x) => x.to))}</td>`
+            + `<td class="mono">${b === cfg.rpo[0] ? '-' : esc(cfg.idom.get(b))}</td><td class="left">${list(cfg.doms.get(b))}</td><td class="left">${list([...cfg.df.get(b)])}</td><td>${cfg.depth.get(b) || '-'}</td></tr>`).join('');
+    $('loopList').innerHTML = (cfg.loops.length
+        ? `<ul>${cfg.loops.map((l) => `<li>${t('cfg.loop', { header: `<code>${esc(l.header)}</code>`, depth: l.depth, blocks: list(l.blocks), latches: list(l.latches), exits: list(l.exits) })}</li>`).join('')}</ul>`
+        : `<p>${t('cfg.noLoops')}</p>`) + `<p>${t('cfg.iter', { n: cfg.iterations, rpo: cfg.rpo.join(', ') })}</p>`;
+}
+function drawCfg() {
+    if (!cfgView) return;
+    $('cfgFig').innerHTML = cfgSvg(cfgView.layout, cfgView.cfg, { selected: cfgBlock, tr: t });
+    $('domFig').innerHTML = domTreeSvg(cfgView.cfg, { selected: cfgBlock });
+    for (const tr of $('cfgTable').querySelectorAll('tr[data-block]')) tr.classList.toggle('cur', tr.dataset.block === cfgBlock);
+}
+function chooseBlock(b) {
+    cfgBlock = cfgBlock === b ? null : b;
+    drawCfg();
+    // O bloco escolhido também passa a ser o do grafo de fluxo de dados.
+    if (cfgBlock && $('dfgFn').value === cfgView.F.name) { dfgBlockChoice = cfgBlock; renderDfg(); }
+    const first = cfgView.F.blocks.find((x) => x.label === b)?.insts.find((i) => i.line);
+    if (cfgBlock && first) select({ from: 'src', src: first.line });
+}
+for (const id of ['cfgFig', 'domFig']) {
+    $(id).addEventListener('click', (e) => { const g = e.target.closest('g.node[data-block]'); if (g) chooseBlock(g.dataset.block); });
+}
+$('cfgTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-block]'); if (tr) chooseBlock(tr.dataset.block); });
+$('cfgFn').onchange = () => { cfgChoice = $('cfgFn').value; cfgBlock = null; renderCfg(); };
+$('cfgInsts').onchange = () => { store.set('cc.cfgInsts', $('cfgInsts').checked ? '1' : ''); renderCfg(); };
+$('cfgInsts').checked = store.get('cc.cfgInsts') === '1';
+
+// Fluxo de dados ---------------------------------------------------------------------------------------------
+
+let dfgFnChoice = null, dfgBlockChoice = null, dfgSel = null, dfgView = null;
+function renderDfg() {
+    if (last.phase !== 'done') { dfgView = null; return; }
+    const F = fillFnSelect($('dfgFn'), dfgFnChoice ?? cfgView?.F.name);
+    const cfg = analyzeCfg(F);
+    const bsel = $('dfgBlock');
+    bsel.innerHTML = F.blocks.map((b) => `<option value="${esc(b.label)}">${esc(b.label)}</option>`).join('');
+    // Sem escolha, o bloco mais aninhado em laços, e entre eles o de mais instruções.
+    const best = [...F.blocks].sort((a, b) => (cfg.depth.get(b.label) - cfg.depth.get(a.label)) || (b.insts.length - a.insts.length))[0].label;
+    bsel.value = F.blocks.some((b) => b.label === dfgBlockChoice) ? dfgBlockChoice : best;
+    const g = blockDfg(F, bsel.value);
+    if (dfgSel !== null && dfgSel >= g.nodes.length) dfgSel = null;
+    dfgView = { F, g, layout: layoutDfg(g, t('dfg.summary', { len: g.length, sum: g.seqSum, ilp: '0.00' }).length) };
+    drawDfg();
+    $('dfgLat').innerHTML = `${t('dfg.latencies')} ${Object.entries(LATENCY).map(([k, v]) => `${esc(t(`cls.${k}`))} ${v}`).join('; ')}.`;
+    $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th></tr>`
+        + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td></tr>`).join('');
+    const du = defUse(F);
+    const where = (u) => `${esc(u.block)}: ${esc(shortText(u.inst))}${u.from ? ` (${esc(u.from)})` : ''}`;
+    $('duTable').innerHTML = `<tr><th>${t('th.valueCol')}</th><th>${t('th.def')}</th><th>${t('th.usesCol')}</th></tr>`
+        + du.map((r) => `<tr data-line="${r.def.inst?.line ?? ''}"><td class="mono">${esc(valueText(r.value))}</td><td class="mono left">${r.def.inst ? `${esc(r.def.block)}: ${esc(shortText(r.def.inst))}` : t('du.param')}</td>`
+            + `<td class="mono left">${r.uses.length ? r.uses.map(where).join('<br>') : `<span class="note">${t('du.none')}</span>`}</td></tr>`).join('');
+}
+function drawDfg() {
+    if (!dfgView) return;
+    $('dfgFig').innerHTML = dfgSvg(dfgView.g, dfgView.layout, { selected: dfgSel, tr: t });
+    for (const tr of $('dfgTable').querySelectorAll('tr[data-id]')) tr.classList.toggle('cur', +tr.dataset.id === dfgSel);
+}
+function chooseNode(id) {
+    dfgSel = dfgSel === id ? null : id;
+    drawDfg();
+    const line = dfgSel !== null ? dfgView.g.nodes[dfgSel].inst.line : null;
+    if (line) select({ from: 'src', src: line });
+}
+$('dfgFig').addEventListener('click', (e) => { const g = e.target.closest('g.node[data-id]'); if (g) chooseNode(+g.dataset.id); });
+$('dfgTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) chooseNode(+tr.dataset.id); });
+$('duTable').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-line]'); if (tr && tr.dataset.line) select({ from: 'src', src: +tr.dataset.line }); });
+$('dfgFn').onchange = () => { dfgFnChoice = $('dfgFn').value; dfgBlockChoice = null; dfgSel = null; renderDfg(); };
+$('dfgBlock').onchange = () => { dfgBlockChoice = $('dfgBlock').value; dfgSel = null; renderDfg(); };
+
+$('irLevel').value = level;
+$('irLevel').onchange = () => {
+    level = $('irLevel').value;
+    store.set('cc.level', level);
+    if (!last || last.phase !== 'done') return;
+    renderCode();
+    renderFrames();
+    renderCfg();
+    renderDfg();
+    select({ from: selection.src ? 'src' : null, src: selection.src });
+};
 
 // Abas -------------------------------------------------------------------------------------------------------
 
@@ -520,12 +657,24 @@ const baseName = () => exampleId ?? 'programa';
 $('tokTex').onclick = () => last && download(`${baseName()}-tokens.tex`, tokensTex(last.tokens), 'application/x-tex');
 $('symTex').onclick = () => last?.sema && download(`${baseName()}-${getLanguage() === 'en' ? 'symbols' : 'simbolos'}.tex`, symbolsTex(symbolRows()), 'application/x-tex');
 $('frameTex').onclick = () => { const f = currentFrame(); if (f) download(`${f.fn}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.tex`, frameTex(f), 'application/x-tex'); };
-$('dlLl').onclick = () => last?.ir && download(`${baseName()}.ll`, last.ir.text, 'text/plain');
-$('dlS').onclick = () => last?.asm && download(`${baseName()}.s`, last.asm.text, 'text/plain');
+const lvlSuffix = () => (level === 'ssa' ? '-mem2reg' : '');
+$('dlLl').onclick = () => last?.ir && download(`${baseName()}${lvlSuffix()}.ll`, V().ir.text, 'text/plain');
+$('dlS').onclick = () => last?.asm && download(`${baseName()}${lvlSuffix()}.s`, V().asm.text, 'text/plain');
 $('astSvg').onclick = () => {
     const svg = $('astFig').querySelector('svg');
     if (svg) download(`${baseName()}-${getLanguage() === 'en' ? 'tree' : 'arvore'}-${steppers.ast.cur}.svg`, standaloneSvg(svg), 'image/svg+xml');
 };
+const svgOf = (id) => $(id).querySelector('svg');
+const fnName = () => cfgView?.F.name ?? 'f';
+$('cfgSvgBtn').onclick = () => { const s = svgOf('cfgFig'); if (s) download(`${fnName()}-cfg${lvlSuffix()}.svg`, standaloneSvg(s), 'image/svg+xml'); };
+$('domSvgBtn').onclick = () => { const s = svgOf('domFig'); if (s) download(`${fnName()}-dom.svg`, standaloneSvg(s), 'image/svg+xml'); };
+$('cfgDotBtn').onclick = () => cfgView && download(`${fnName()}-cfg${lvlSuffix()}.dot`, cfgDot(cfgView.F, cfgView.cfg, true), 'text/vnd.graphviz');
+$('domDotBtn').onclick = () => cfgView && download(`${fnName()}-dom.dot`, domDot(cfgView.F, cfgView.cfg), 'text/vnd.graphviz');
+$('domTexBtn').onclick = () => cfgView && download(`${fnName()}-${getLanguage() === 'en' ? 'dominators' : 'dominadores'}.tex`, domTex(cfgView.F, cfgView.cfg), 'application/x-tex');
+const dfgName = () => `${dfgView?.F.name}-${dfgView?.g.label}-dfg${lvlSuffix()}`;
+$('dfgSvgBtn').onclick = () => { const s = svgOf('dfgFig'); if (s) download(`${dfgName()}.svg`, standaloneSvg(s), 'image/svg+xml'); };
+$('dfgDotBtn').onclick = () => dfgView && download(`${dfgName()}.dot`, dfgDot(dfgView.F, dfgView.g), 'text/vnd.graphviz');
+$('dfgTexBtn').onclick = () => dfgView && download(`${dfgName()}.tex`, dfgTex(dfgView.F, dfgView.g), 'application/x-tex');
 $('frameSvg').onclick = () => {
     const svg = $('frameFig').querySelector('svg');
     if (svg) download(`${$('frameFn').value}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.svg`, standaloneSvg(svg), 'image/svg+xml');
@@ -539,7 +688,7 @@ function encodeShare(obj) {
 }
 $('cpu').onclick = () => {
     if (!last || last.phase !== 'done') return;
-    const payload = { code: last.asm.text, config: { mode: 'pipeline', xlen: 32, exampleValues: false, maxCycles: 100000 }, view: 'sim' };
+    const payload = { code: V().asm.text, config: { mode: 'pipeline', xlen: 32, exampleValues: false, maxCycles: 100000 }, view: 'sim' };
     window.open(`${CPU_URL}#s=${encodeShare(payload)}`, '_blank', 'noopener');
 };
 

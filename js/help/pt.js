@@ -17,7 +17,7 @@ export default {
 <ol>
     <li>Escolha um <strong>exemplo</strong> ou escreva o seu programa no editor. O código é compilado enquanto você digita; os erros aparecem abaixo do editor, com o número da linha (clique em um erro para ir até ela).</li>
     <li>Acompanhe as <strong>fases</strong> na faixa acima das abas: cada fase concluída ganha um ✓; a fase com erro fica marcada com ✗ e as seguintes ficam esperando.</li>
-    <li>Explore as abas: <strong>Tokens</strong> e <strong>Árvore</strong> têm passo a passo (setas do teclado ou <strong>Animar</strong>); <strong>Símbolos</strong> mostra a tabela de símbolos; <strong>IR e RISC-V</strong> mostra o código gerado lado a lado; <strong>Pilha</strong> desenha o registro de ativação de cada função.</li>
+    <li>Explore as abas: <strong>Tokens</strong> e <strong>Árvore</strong> têm passo a passo (setas do teclado ou <strong>Animar</strong>); <strong>Símbolos</strong> mostra a tabela de símbolos; <strong>IR e RISC-V</strong> mostra o código gerado lado a lado; <strong>Pilha</strong> desenha o registro de ativação de cada função; <strong>Fluxo de controle</strong> e <strong>Fluxo de dados</strong> mostram os grafos e as análises do estilo do LLVM.</li>
     <li>O resultado da execução (valor de retorno de <code>main</code>, instruções executadas e variáveis globais) aparece no quadro <strong>Execução</strong>.</li>
     <li>Para ver o mesmo código passando pelo pipeline, use <strong>Abrir no simulador de processadores</strong>.</li>
 </ol>
@@ -30,6 +30,7 @@ export default {
 <dl>
     <dt>Código MiniC</dt><dd>Editor com destaque de sintaxe. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compila e executa de novo; <kbd>Tab</kbd> insere quatro espaços. O texto fica guardado no navegador para a próxima visita.</dd>
     <dt>Opções</dt><dd><strong>Comentários com a IR</strong> coloca, ao lado de cada trecho do assembly, a instrução da IR que o gerou; <strong>Linhas do código fonte</strong> intercala as linhas do programa como comentários.</dd>
+    <dt>IR</dt><dd>Escolhe a IR mostrada nas abas de código e de grafos: sem otimização (como <code>clang -O0</code>) ou depois da mem2reg, na forma SSA.</dd>
     <dt>Execução</dt><dd>O assembly é montado e executado pelo mesmo simulador funcional do Simulador de Processadores. A IR também é interpretada, e os dois resultados precisam coincidir (o quadro avisa se não coincidirem). O limite é de dois milhões de instruções.</dd>
     <dt>Fases</dt><dd>Clique em uma fase para abrir a aba correspondente.</dd>
     <dt>Ligação entre as visões</dt><dd>Uma linha clicada no editor, na IR ou no assembly fica destacada, junto com as linhas correspondentes nas outras duas visões.</dd>
@@ -150,6 +151,42 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
 <p>A aba <strong>Pilha</strong> desenha o quadro de cada função, com o deslocamento de cada posição em relação a <code>s0</code> (o que aparece no assembly) e em relação a <code>sp</code>. No exemplo <em>Fatorial recursivo</em>, cada chamada empilha um quadro igual a esse.</p>`,
         },
         {
+            id: 'ssa',
+            title: 'mem2reg e a forma SSA',
+            html: `
+<p>O seletor <strong>IR</strong>, abaixo do editor, troca a IR sem otimização pela IR depois da passagem <strong>mem2reg</strong> do LLVM (<code>opt -passes=mem2reg</code>). A troca vale para as abas IR e RISC-V, Pilha, Fluxo de controle e Fluxo de dados.</p>
+<p>Na forma SSA (atribuição estática única), cada valor tem uma só definição. A mem2reg leva a IR para essa forma tirando da memória as variáveis que só são lidas e escritas por <code>load</code> e <code>store</code>:</p>
+<ol>
+    <li>os blocos com <code>store</code> na variável são as suas definições;</li>
+    <li>uma <code>phi</code> é posta em cada bloco da <strong>fronteira de dominância iterada</strong> dessas definições, mas só onde a variável está viva na entrada (SSA podada, como no LLVM);</li>
+    <li>um percurso da árvore de dominadores troca cada <code>load</code> pelo valor que chega até ali, e cada <code>phi</code> recebe o valor que sai de cada predecessor.</li>
+</ol>
+<p>As <code>phi</code> recebem o nome da variável com um número de versão (<code>%i.0</code>), como no LLVM. Vetores e variáveis com o endereço tomado (<code>&amp;x</code>) continuam na memória; a nota acima do código lista quais foram promovidas. Um <code>load</code> sem nenhum <code>store</code> antes lê <code>undef</code>, um valor indefinido.</p>
+<p>O quadro Execução mostra as duas versões lado a lado. A mem2reg corta pela metade as instruções da IR, mas o assembly quase não muda: o gerador de código ainda guarda no quadro da pilha todo valor que passa de um bloco para outro, e as <code>phi</code> viram cópias. Aproveitar a forma SSA exige um alocador de registradores para a função inteira.</p>`,
+        },
+        {
+            id: 'cfg',
+            title: 'Fluxo de controle e dominadores',
+            html: `
+<p>A aba <strong>Fluxo de controle</strong> desenha o <strong>grafo de fluxo de controle</strong> (CFG) de uma função: cada caixa é um bloco básico e cada seta, um desvio possível (V e F nos desvios condicionais). As arestas que pulam camadas descem pela esquerda; as <strong>arestas de retorno</strong>, que fecham os laços, sobem pela direita. A cor de fundo mostra a profundidade dos laços.</p>
+<dl>
+    <dt>Dominador</dt><dd>O bloco A domina B quando todo caminho da entrada até B passa por A. O dominador imediato é o mais próximo de B, e as ligações de cada bloco ao seu dominador imediato formam a <strong>árvore de dominadores</strong>, desenhada ao lado.</dd>
+    <dt>Fronteira de dominância</dt><dd>Os blocos em que o domínio de A termina: A domina um predecessor deles, mas não domina o bloco em si. São as junções onde valores diferentes se encontram, e é ali que a mem2reg coloca as <code>phi</code>.</dd>
+    <dt>Laço natural</dt><dd>Uma aresta de retorno vai de um bloco para um cabeçalho que o domina. O laço é o cabeçalho mais os blocos que chegam à origem da aresta sem passar pelo cabeçalho. Laços dentro de laços aumentam a profundidade.</dd>
+</dl>
+<p>Clique num bloco (no grafo, na árvore ou na tabela) para destacar os seus dominadores e a sua fronteira de dominância. Os dominadores são calculados pelo algoritmo iterativo de Cooper, Harvey e Kennedy sobre a ordem pós-fixa reversa, o mesmo princípio do LLVM. A tabela e a lista de laços trazem os mesmos dados em texto.</p>
+<p>O botão <strong>CFG (DOT)</strong> gera o arquivo no formato do Graphviz, como <code>opt -passes=dot-cfg</code>: <code>dot -Tpdf ordena-cfg.dot -o cfg.pdf</code>.</p>`,
+        },
+        {
+            id: 'dfg',
+            title: 'Fluxo de dados e caminho crítico',
+            html: `
+<p>A aba <strong>Fluxo de dados</strong> desenha o <strong>grafo de fluxo de dados</strong> (DFG) de um bloco básico. Cada instrução é um nó; uma seta cheia liga quem define um valor a quem o usa, e uma seta tracejada mantém a ordem entre acessos à memória que podem ser no mesmo endereço (um <code>load</code> não passa à frente de um <code>store</code> anterior, e uma chamada pode ler ou escrever qualquer variável cujo endereço escapou). Valores que vêm de outros blocos aparecem como elipses no alto.</p>
+<p>O desenho está em escala de tempo: cada instrução começa no primeiro ciclo em que todos os seus operandos estão prontos (<strong>escalonamento ASAP</strong>, com unidades funcionais à vontade), e a altura da caixa é a sua latência, a mesma do simulador de processadores. O <strong>caminho crítico</strong>, destacado, é a cadeia mais longa: nenhum processador termina o bloco em menos ciclos que isso. A tabela traz também o início mais tarde possível sem atrasar o bloco (<strong>ALAP</strong>) e a <strong>folga</strong> de cada instrução; as instruções sem folga são as do caminho crítico.</p>
+<p>A razão entre a soma das latências e o caminho crítico é o paralelismo disponível no bloco, o limite do que um processador superescalar ou com despacho duplo pode aproveitar. Compare o mesmo bloco com e sem a mem2reg: os <code>load</code> e <code>store</code> das variáveis somem, e o caminho crítico encurta.</p>
+<p>A tabela de definições e usos lista, para cada valor da função, onde ele é definido e onde é usado (para uma <code>phi</code>, também de qual bloco o valor vem).</p>`,
+        },
+        {
             id: 'cpu',
             title: 'Execução e simulador de processadores',
             html: `
@@ -161,8 +198,9 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
             title: 'Exportações',
             html: `
 <ul>
-    <li><strong>Exportar figura (SVG)</strong>: a árvore (no passo atual) e o registro de ativação, com as cores do tema claro, prontos para slides e textos.</li>
+    <li><strong>Exportar figura (SVG)</strong> e os botões <strong>(SVG)</strong>: a árvore (no passo atual), o registro de ativação, o CFG, a árvore de dominadores e o DFG, com as cores do tema claro, prontos para slides e textos.</li>
     <li><strong>Tabela em LaTeX</strong>: tokens, tabela de símbolos e quadro da pilha, com cabeçalho na cor <code>tabAzul</code> e linhas com <code>\\hline</code>. Requer <code>\\usepackage[table]{xcolor}</code>.</li>
+    <li><strong>CFG (DOT)</strong>, <strong>Dominadores (DOT)</strong> e <strong>DFG (DOT)</strong>: os grafos no formato do Graphviz, como o <code>opt</code> do LLVM gera; tabelas em LaTeX dos dominadores e do escalonamento do bloco.</li>
     <li><strong>Baixar IR (.ll)</strong> e <strong>Baixar assembly (.s)</strong>: o texto gerado, para comparar com outras ferramentas.</li>
 </ul>`,
         },

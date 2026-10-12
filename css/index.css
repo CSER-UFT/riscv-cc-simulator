@@ -726,3 +726,46 @@ ul.errors li.warn { color: var(--focus); }
 .code-view .cl.cur { box-shadow: inset 3px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
 .legend { margin-left: 4px; }
 .pending-msg { margin: 16px 0; }
+
+/* Grafos de fluxo de controle e de dados */
+.graph-pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; margin-top: 10px; }
+#pane-dfg .graph-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1400px) { .graph-pair, #pane-dfg .graph-pair { grid-template-columns: 1fr; } }
+.graph-pair .fig-box { margin-top: 0; }
+label.check { display: inline-flex; align-items: center; gap: 4px; }
+.fig-svg .wire { fill: none; stroke: var(--wire); stroke-width: 1.4; }
+.fig-svg .wire.back { stroke-dasharray: 6 3; }
+.fig-svg .wire.on { stroke: var(--accent); stroke-width: 2.4; }
+.fig-svg .head { fill: var(--wire); }
+.fig-svg .head.on { fill: var(--accent); }
+.fig-svg .tlabel { fill: var(--ok); }
+.fig-svg .flabel { fill: var(--warn); }
+.fig-svg .blk { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.3; }
+.fig-svg .blk.depth1, .lg.depth1 { fill: color-mix(in srgb, var(--accent) 9%, var(--panel)); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.fig-svg .blk.depth2 { fill: color-mix(in srgb, var(--accent) 18%, var(--panel)); }
+.fig-svg .blk.depth3 { fill: color-mix(in srgb, var(--accent) 28%, var(--panel)); }
+.fig-svg .blk.dom, .lg.dom { fill: var(--focus-soft); background: var(--focus-soft); }
+.fig-svg .blk.df { stroke: var(--warn); stroke-width: 2.4; stroke-dasharray: 6 3; }
+.lg.df { border: 2px dashed var(--warn); }
+.fig-svg .blk.sel { stroke: var(--accent); stroke-width: 3; }
+.lg.sel { border: 2px solid var(--accent); }
+.fig-svg .grid { stroke: var(--line); stroke-width: 0.6; stroke-dasharray: 2 4; }
+.fig-svg .inp { fill: var(--panel-2); stroke: var(--line-strong); stroke-width: 1; }
+.fig-svg .wire.input { stroke-dasharray: 2 3; }
+.fig-svg .wire.mem { stroke-dasharray: 6 4; }
+.fig-svg .wire.crit { stroke: var(--warn); stroke-width: 2.6; }
+.fig-svg .head.crit { fill: var(--warn); }
+.fig-svg .op { stroke: var(--line-strong); stroke-width: 1.2; fill: var(--c-exec); }
+.fig-svg .op.c-load, .fig-svg .op.c-store { fill: var(--c-mem); }
+.fig-svg .op.c-mul, .fig-svg .op.c-div, .fig-svg .op.c-fmul, .fig-svg .op.c-fdiv { fill: var(--c-write); }
+.fig-svg .op.c-fadd { fill: var(--c-commit); }
+.fig-svg .op.c-branch, .fig-svg .op.c-call, .fig-svg .op.c-phi { fill: var(--c-issue); }
+.fig-svg .op.crit { stroke: var(--warn); stroke-width: 2.6; }
+.fig-svg .op.sel { stroke: var(--accent); stroke-width: 3; }
+.fig-svg .node .dim, .fig-svg .op.dim { opacity: 0.35; }
+#cfgTable tr[data-block], #dfgTable tr[data-id], #duTable tr[data-line] { cursor: pointer; }
+#cfgTable tr.cur td, #dfgTable tr.cur td { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+#dfgTable tr.crit td { font-weight: 600; color: var(--warn); }
+#cfgTable td, #duTable td { vertical-align: top; }
+#loopList ul { margin: 4px 0; padding-left: 20px; }
+.legend-line { margin-top: 6px; }

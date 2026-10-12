@@ -12,9 +12,12 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 * **Árvore sintática abstrata** em SVG, crescendo na ordem em que a descida recursiva cria os nós, com o tipo de cada expressão calculado na análise semântica; uma função de cada vez ou o programa inteiro.
 * **Tabela de símbolos** por escopo (global, parâmetros, blocos e `for`), com categoria, tipo, linha, número de usos e onde o código gerado guarda cada nome.
 * **IR e RISC-V** lado a lado, ligados ao código fonte: uma linha clicada em qualquer das três visões destaca as correspondentes nas outras duas. O assembly pode trazer como comentários a instrução da IR e a linha do fonte que geraram cada trecho.
+* **mem2reg**: a mesma IR na forma SSA, como `opt -passes=mem2reg` (phi na fronteira de dominância iterada, podada pela vivacidade, com os nomes `%i.0` do LLVM), com o assembly gerado a partir dela e a comparação das duas versões na execução.
+* **Fluxo de controle**: grafo de fluxo de controle em camadas, árvore de dominadores, fronteira de dominância e laços naturais com a profundidade de aninhamento; um clique num bloco destaca os seus dominadores e a sua fronteira.
+* **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; cadeias de definição e uso da função.
 * **Registro de ativação** de cada função em SVG, com os deslocamentos em relação a `s0` e a `sp`.
 * **Execução** do assembly no mesmo simulador funcional do riscv-cpu-simulator (valor de retorno de `main`, instruções executadas, variáveis globais) e botão para abrir o código gerado no simulador de processadores, no modelo com pipeline.
-* Exportações: figuras em SVG independentes, tabelas em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), IR (`.ll`) e assembly (`.s`).
+* Exportações: figuras em SVG independentes, grafos no formato DOT do Graphviz (como `opt -passes=dot-cfg`), tabelas em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), IR (`.ll`) e assembly (`.s`).
 * Exemplos: soma de vetor, soma com ponteiro, troca com ponteiros, fatorial recursivo, Fibonacci, MDC, ordenação pelo método da bolha, SAXPY, multiplicação de matrizes, curto circuito, média de floats e busca binária.
 
 ## A linguagem MiniC
@@ -30,12 +33,14 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 | `js/cc/sema.js` | escopos, tabela de símbolos e verificação de tipos |
 | `js/cc/irgen.js` | IR no formato do LLVM: `alloca`, `load`, `store`, `getelementptr`, `icmp`, `fcmp`, `phi` para `&&` e `||`, blocos com o nome usado pelo clang |
 | `js/cc/codegen.js` | RISC-V: quadro com base em `s0`, convenção de chamada (ABI ilp32f), comparação e desvio fundidos, `phi` por cópias, temporários em `t0` a `t5` e `ft0` a `ft7` com valores guardados no quadro ao cruzar desvios e chamadas |
+| `js/cc/mem2reg.js` | promoção das variáveis para valores SSA (mem2reg) |
+| `js/cc/cfg.js` | CFG, ordem pós-fixa reversa, dominadores (Cooper, Harvey e Kennedy), fronteira de dominância, laços naturais |
+| `js/cc/dfg.js` | grafo de fluxo de dados por bloco, dependências de memória, ASAP, ALAP e caminho crítico; definições e usos |
 | `js/cc/irinterp.js` | interpretador da IR, usado como oráculo |
 | `js/vendor/riscv/` | montador e simulador funcional copiados do riscv-cpu-simulator |
 
 ## Próximas etapas previstas
 
-* Grafo de fluxo de controle, dominadores, laços, SSA (mem2reg), cadeias de definição e uso e grafo de fluxo de dados com caminho crítico.
 * Mapa de calor estático e dinâmico do código.
 * Otimizações clássicas e aproximadas, com a relação entre erro e ganho.
 * Alocação de registradores, escalonamento para o processador com despacho duplo e escalonamento no estilo da síntese de alto nível.
@@ -46,7 +51,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 npm test
 ```
 
-Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados; em todos, o assembly montado e executado precisa dar o mesmo resultado que a IR interpretada. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
+Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados com laços e trocas de variáveis; em todos, a IR interpretada, a IR depois da mem2reg e o assembly gerado a partir de cada uma precisam dar o mesmo resultado. Verificam também os dominadores, as fronteiras e os laços de programas conhecidos, o caminho crítico e as dependências de memória, a saída da mem2reg no formato do LLVM e os arquivos DOT. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
 
 ## Licença
 

@@ -66,6 +66,7 @@ export function interpret(module, { maxSteps = 1000000 } = {}) {
             switch (v.vk) {
                 case 'const': return v.v;
                 case 'global': return globalAddr.get(v.name);
+                case 'undef': return 0;
                 default: return env.get(v);
             }
         };

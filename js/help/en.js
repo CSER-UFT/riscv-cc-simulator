@@ -16,7 +16,7 @@ export default {
 <ol>
     <li>Choose an <strong>example</strong> or write your program in the editor. The code is compiled as you type; errors appear below the editor with their line number (click an error to go to it).</li>
     <li>Follow the <strong>phases</strong> in the strip above the tabs: each finished phase gets a ✓; the phase with an error is marked with ✗ and the following ones wait.</li>
-    <li>Explore the tabs: <strong>Tokens</strong> and <strong>Tree</strong> have a step by step view (keyboard arrows or <strong>Animate</strong>); <strong>Symbols</strong> shows the symbol table; <strong>IR and RISC-V</strong> shows the generated code side by side; <strong>Stack</strong> draws the activation record of each function.</li>
+    <li>Explore the tabs: <strong>Tokens</strong> and <strong>Tree</strong> have a step by step view (keyboard arrows or <strong>Animate</strong>); <strong>Symbols</strong> shows the symbol table; <strong>IR and RISC-V</strong> shows the generated code side by side; <strong>Stack</strong> draws the activation record of each function; <strong>Control flow</strong> and <strong>Data flow</strong> show the graphs and analyses in the LLVM style.</li>
     <li>The result of the run (return value of <code>main</code>, executed instructions and global variables) appears in the <strong>Execution</strong> panel.</li>
     <li>To watch the same code going through the pipeline, use <strong>Open in the processor simulator</strong>.</li>
 </ol>
@@ -29,6 +29,7 @@ export default {
 <dl>
     <dt>MiniC code</dt><dd>Editor with syntax highlighting. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compiles and runs again; <kbd>Tab</kbd> inserts four spaces. The text is kept in the browser for the next visit.</dd>
     <dt>Options</dt><dd><strong>IR comments</strong> places, next to each piece of assembly, the IR instruction that generated it; <strong>Source code lines</strong> interleaves the program lines as comments.</dd>
+    <dt>IR</dt><dd>Chooses the IR shown in the code and graph tabs: unoptimized (like <code>clang -O0</code>) or after mem2reg, in SSA form.</dd>
     <dt>Execution</dt><dd>The assembly is assembled and run by the same functional simulator as the Processor Simulator. The IR is also interpreted, and both results must match (the panel warns if they do not). The limit is two million instructions.</dd>
     <dt>Phases</dt><dd>Click a phase to open the matching tab.</dd>
     <dt>Linked views</dt><dd>A line clicked in the editor, in the IR or in the assembly is highlighted together with the matching lines in the other two views.</dd>
@@ -149,6 +150,42 @@ addi s0, sp, 32      # s0 points to the top of the frame</code></pre>
 <p>The <strong>Stack</strong> tab draws the frame of each function, with the offset of each slot from <code>s0</code> (what appears in the assembly) and from <code>sp</code>. In the <em>Recursive factorial</em> example, each call pushes one such frame.</p>`,
         },
         {
+            id: 'ssa',
+            title: 'mem2reg and SSA form',
+            html: `
+<p>The <strong>IR</strong> selector, below the editor, switches the unoptimized IR for the IR after LLVM's <strong>mem2reg</strong> pass (<code>opt -passes=mem2reg</code>). The choice applies to the IR and RISC-V, Stack, Control flow and Data flow tabs.</p>
+<p>In SSA form (static single assignment), each value has a single definition. mem2reg takes the IR to this form by removing from memory the variables that are only read and written by <code>load</code> and <code>store</code>:</p>
+<ol>
+    <li>the blocks with a <code>store</code> to the variable are its definitions;</li>
+    <li>a <code>phi</code> is placed in each block of the <strong>iterated dominance frontier</strong> of those definitions, but only where the variable is live on entry (pruned SSA, as in LLVM);</li>
+    <li>a walk over the dominator tree replaces each <code>load</code> by the value that reaches it, and each <code>phi</code> receives the value leaving each predecessor.</li>
+</ol>
+<p>The <code>phi</code> nodes take the variable name with a version number (<code>%i.0</code>), as in LLVM. Arrays and variables whose address is taken (<code>&amp;x</code>) stay in memory; the note above the code lists which ones were promoted. A <code>load</code> with no <code>store</code> before it reads <code>undef</code>, an undefined value.</p>
+<p>The Execution panel shows both versions side by side. mem2reg halves the IR instructions, but the assembly barely changes: the code generator still keeps in the stack frame every value passed from one block to another, and the <code>phi</code> nodes become copies. Taking advantage of SSA form requires a register allocator for the whole function.</p>`,
+        },
+        {
+            id: 'cfg',
+            title: 'Control flow and dominators',
+            html: `
+<p>The <strong>Control flow</strong> tab draws the <strong>control flow graph</strong> (CFG) of a function: each box is a basic block and each arrow, a possible branch (T and F on conditional branches). Edges that skip layers go down on the left; <strong>back edges</strong>, which close loops, go up on the right. The background color shows the loop depth.</p>
+<dl>
+    <dt>Dominator</dt><dd>Block A dominates B when every path from the entry to B goes through A. The immediate dominator is the closest one to B, and the links from each block to its immediate dominator form the <strong>dominator tree</strong>, drawn alongside.</dd>
+    <dt>Dominance frontier</dt><dd>The blocks where the dominance of A ends: A dominates one of their predecessors but not the block itself. They are the joins where different values meet, and that is where mem2reg places the <code>phi</code> nodes.</dd>
+    <dt>Natural loop</dt><dd>A back edge goes from a block to a header that dominates it. The loop is the header plus the blocks that reach the edge source without going through the header. Loops inside loops increase the depth.</dd>
+</dl>
+<p>Click a block (in the graph, in the tree or in the table) to highlight its dominators and its dominance frontier. Dominators are computed by the iterative algorithm of Cooper, Harvey and Kennedy over the reverse postorder, the same principle used in LLVM. The table and the loop list give the same data as text.</p>
+<p>The <strong>CFG (DOT)</strong> button produces the Graphviz file, like <code>opt -passes=dot-cfg</code>: <code>dot -Tpdf sort-cfg.dot -o cfg.pdf</code>.</p>`,
+        },
+        {
+            id: 'dfg',
+            title: 'Data flow and critical path',
+            html: `
+<p>The <strong>Data flow</strong> tab draws the <strong>data flow graph</strong> (DFG) of a basic block. Each instruction is a node; a solid arrow links the instruction that defines a value to the ones that use it, and a dashed arrow keeps the order between memory accesses that may touch the same address (a <code>load</code> does not move ahead of an earlier <code>store</code>, and a call may read or write any variable whose address escaped). Values coming from other blocks appear as ellipses at the top.</p>
+<p>The drawing is in time scale: each instruction starts at the first cycle in which all its operands are ready (<strong>ASAP scheduling</strong>, with unlimited functional units), and the box height is its latency, the same as in the processor simulator. The highlighted <strong>critical path</strong> is the longest chain: no processor finishes the block in fewer cycles. The table also gives the latest start that does not delay the block (<strong>ALAP</strong>) and the <strong>slack</strong> of each instruction; instructions without slack are on the critical path.</p>
+<p>The ratio between the sum of latencies and the critical path is the parallelism available in the block, the limit of what a superscalar or dual issue processor can exploit. Compare the same block with and without mem2reg: the <code>load</code> and <code>store</code> of the variables disappear, and the critical path gets shorter.</p>
+<p>The definitions and uses table lists, for each value of the function, where it is defined and where it is used (for a <code>phi</code>, also which block the value comes from).</p>`,
+        },
+        {
             id: 'cpu',
             title: 'Execution and the processor simulator',
             html: `
@@ -160,8 +197,9 @@ addi s0, sp, 32      # s0 points to the top of the frame</code></pre>
             title: 'Exports',
             html: `
 <ul>
-    <li><strong>Export figure (SVG)</strong>: the tree (at the current step) and the activation record, with the light theme colors, ready for slides and papers.</li>
+    <li><strong>Export figure (SVG)</strong> and the <strong>(SVG)</strong> buttons: the tree (at the current step), the activation record, the CFG, the dominator tree and the DFG, with the light theme colors, ready for slides and papers.</li>
     <li><strong>LaTeX table</strong>: tokens, symbol table and stack frame, with the header in the <code>tabAzul</code> color and <code>\\hline</code> rows. Requires <code>\\usepackage[table]{xcolor}</code>.</li>
+    <li><strong>CFG (DOT)</strong>, <strong>Dominators (DOT)</strong> and <strong>DFG (DOT)</strong>: the graphs in Graphviz format, as LLVM's <code>opt</code> produces them; LaTeX tables of the dominators and of the block schedule.</li>
     <li><strong>Download IR (.ll)</strong> and <strong>Download assembly (.s)</strong>: the generated text, to compare with other tools.</li>
 </ul>`,
         },

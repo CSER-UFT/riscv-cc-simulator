@@ -8,6 +8,10 @@ const same = (r) => {
     assert.equal(r.asm.reason, 'end');
     assert.equal(r.asm.ret, r.ir.ret);
     for (const [k, v] of r.ir.globals) assert.deepEqual(r.asm.globals.get(k), v, `global ${k}`);
+    assert.equal(r.ssaIr.ret, r.ir.ret, 'IR em SSA');
+    assert.equal(r.ssaAsm.reason, 'end');
+    assert.equal(r.ssaAsm.ret, r.ir.ret, 'assembly da SSA');
+    for (const [k, v] of r.ir.globals) assert.deepEqual(r.ssaAsm.globals.get(k), v, `global ${k} (SSA)`);
 };
 
 for (const e of EXAMPLES) {
@@ -133,6 +137,36 @@ int main() {
     }
     return r + x + a + b;
 }`, 50 + 100 + 5 + 5 + 3],
+    'troca de variáveis no laço (cópias paralelas das phi)': [`
+int main() {
+    int a = 1, b = 2, c = 3;
+    float x = 1.5, y = 2.5;
+    for (int i = 0; i < 7; i++) {
+        int t = a; a = b; b = c; c = t;
+        float u = x; x = y; y = u;
+    }
+    return a * 100 + b * 10 + c + x * 1000;
+}`, 231 + 2500],
+    'argumentos usados depois de chamadas': [`
+int g(int x) { return x + 1; }
+float h(float a, int k, float b) { float r = g(k) * a; return r + g(k) + b; }
+int main() { return h(2.0, 4, 0.5) * 10; }`, 155],
+    'variável sem valor inicial e laços aninhados': [`
+int main() {
+    int s;
+    s = 0;
+    int k;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            if (j == i) continue;
+            if (j > 2) break;
+            s += i * j;
+        }
+        k = i;
+    }
+    while (s > 100) s -= 100;
+    return s + k;
+}`, null],
     'menos unário e constantes negativas': [`
 int g = -5;
 float h = -2.5;

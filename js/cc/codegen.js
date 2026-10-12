@@ -116,7 +116,7 @@ export function render(out, tr = null) {
     const lines = [], text = [];
     for (const l of out) {
         let s = l.text;
-        const c = l.comment ?? (l.note && tr ? tr(`asm.note.${l.note}`) : null);
+        const c = l.comment ?? (l.note && tr ? tr(`asm.note.${l.note}`, l.noteArgs ?? {}) : null);
         if (c) s = `${s.padEnd(28)} # ${c}`;
         text.push(s);
         lines.push({ src: l.src ?? null, node: l.node ?? null, ir: l.ir ?? null, ir2: l.ir2 ?? null, fn: l.fn ?? null, isSrc: !!l.isSrc });
@@ -150,7 +150,7 @@ function genFunction(F, emitLine, poolLabel, opts) {
         if (!slotOff.has(v)) {
             bottom -= 4;
             slotOff.set(v, bottom);
-            slots.push({ name: valueText(v), off: bottom, size: 4, kind: 'temp', ty: v.ty });
+            slots.push({ name: valueText(v), off: bottom, size: 4, kind: v.vk === 'arg' ? 'param' : 'temp', ty: v.ty });
         }
         return slotOff.get(v);
     };
@@ -177,6 +177,19 @@ function genFunction(F, emitLine, poolLabel, opts) {
     const argReg = new Map();
     let ni = 0, nf = 0;
     for (const p of F.params) argReg.set(p.value, isFloatTy(p.ty) ? `fa${nf++}` : `a${ni++}`);
+    // Na IR sem otimização, cada argumento só é copiado para a sua alloca no bloco de entrada. Na forma SSA ele é
+    // usado em qualquer ponto, inclusive depois de chamadas que reescrevem a0 a a7: então é guardado no quadro.
+    const argSaved = new Set();
+    for (const b of F.blocks) {
+        for (const i of b.insts) {
+            const ops = [...operands(i), ...(i.incoming ?? []).map(([v]) => v)];
+            for (const v of ops) {
+                if (v?.vk !== 'arg') continue;
+                const simple = i.op === 'store' && i.val === v && b === F.blocks[0] && !b.insts.slice(0, b.insts.indexOf(i)).some((x) => x.op === 'call');
+                if (!simple) argSaved.add(v);
+            }
+        }
+    }
 
     // Estado dos registradores.
     const regOf = new Map();       // valor -> registrador
@@ -243,7 +256,13 @@ function genFunction(F, emitLine, poolLabel, opts) {
                 } else emit(`li ${r}, ${v.v}`);
                 return;
             case 'global': emit(`la ${r}, ${v.name}`); return;
-            case 'arg': emit(`${fp ? 'fmv.s' : 'mv'} ${r}, ${argReg.get(v)}`); return;
+            case 'undef':
+                emit(fp ? `fmv.w.x ${r}, zero` : `li ${r}, 0`);
+                return;
+            case 'arg':
+                if (argSaved.has(v)) mem(fp ? 'flw' : 'lw', r, 's0', slotOf(v));
+                else emit(`${fp ? 'fmv.s' : 'mv'} ${r}, ${argReg.get(v)}`);
+                return;
             default:
                 if (allocaOff.has(v)) {
                     const off = allocaOff.get(v);
@@ -257,8 +276,8 @@ function genFunction(F, emitLine, poolLabel, opts) {
 
     /** Registrador com o valor, para leitura (carrega se preciso). */
     function getReg(v) {
-        if (v.vk === 'const' && v.ty !== 'float' && v.v === 0) return 'zero';
-        if (v.vk === 'arg') return argReg.get(v);
+        if ((v.vk === 'const' || v.vk === 'undef') && v.ty !== 'float' && !v.v) return 'zero';
+        if (v.vk === 'arg' && !argSaved.has(v)) return argReg.get(v);
         if (isTemp(v) && regOf.has(v)) { pinned.add(regOf.get(v)); return regOf.get(v); }
         const r = alloc(isFloatTy(v.ty));
         materializeInto(v, r);
@@ -311,15 +330,41 @@ function genFunction(F, emitLine, poolLabel, opts) {
 
     function phiCopies(from, toLabel) {
         const to = F.blocks[blockIndex.get(toLabel)];
+        const copies = [];
         for (const i of to.insts) {
             if (i.op !== 'phi') continue;
             const inc = i.incoming.find(([, l]) => l === from.label);
-            if (!inc) continue;
+            if (inc) copies.push([i, inc[0]]);
+        }
+        // As cópias são simultâneas: se uma entrada é o valor de outra phi do mesmo bloco (como numa troca de
+        // variáveis no laço), todas as entradas são lidas para posições auxiliares antes da primeira escrita.
+        const dsts = new Set(copies.map(([i]) => i.dst));
+        const parallel = copies.some(([, v]) => dsts.has(v));
+        const nInt = copies.filter(([i]) => !isFloatTy(i.ty)).length, nFp = copies.length - nInt;
+        if (parallel && nInt <= 4 && nFp <= 6) {
+            // Poucas cópias: todas as entradas vão para registradores e só depois são escritas.
+            const regs = copies.map(([i, v]) => { setMeta(i); return getReg(v); });
+            copies.forEach(([i], k) => { setMeta(i); mem(isFloatTy(i.ty) ? 'fsw' : 'sw', regs[k], 's0', slotOf(i.dst)); });
+            release(copies.map(([, v]) => v));
+            return;
+        }
+        const staged = copies.map(([i, v]) => {
+            if (!parallel) return [i, v];
             setMeta(i);
             const fp = isFloatTy(i.ty);
-            const r = getReg(inc[0]);
+            const tmp = { vk: 'temp', ty: i.ty, name: `${valueText(i.dst).slice(1)}.tmp` };
+            const r = getReg(v);
+            mem(fp ? 'fsw' : 'sw', r, 's0', slotOf(tmp));
+            release([v]);
+            return [i, tmp, v];
+        });
+        for (const [i, v, orig] of staged) {
+            setMeta(i);
+            const fp = isFloatTy(i.ty);
+            const r = getReg(v);
             mem(fp ? 'fsw' : 'sw', r, 's0', slotOf(i.dst));
-            release([inc[0]]);
+            if (!orig) release([v]);
+            else release([]);
         }
     }
 
@@ -337,6 +382,14 @@ function genFunction(F, emitLine, poolLabel, opts) {
         if (blockIndex.get(target) !== bi + 1) emit(`j ${label(target)}`);
     };
 
+    for (const p of F.params) {
+        if (!argSaved.has(p.value)) continue;
+        meta = { src: F.line, node: F.sym.node.id, ir: null, fn: F.name };
+        comment = null;
+        mem(isFloatTy(p.ty) ? 'fsw' : 'sw', argReg.get(p.value), 's0', slotOf(p.value));
+        body[body.length - 1].note = 'arg';
+        body[body.length - 1].noteArgs = { name: p.name };
+    }
     F.blocks.forEach((b, bi) => {
         if (bi > 0) emitLabel(`${label(b.label)}:`, { fn: F.name, block: b.label });
         lastSrc = bi === 0 ? null : lastSrc;

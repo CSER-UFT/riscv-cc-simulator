@@ -28,3 +28,14 @@ export function frameTex(frame) {
     const rows = [...frame.slots].sort((a, b) => b.off - a.off).map((s) => [tt(`${s.off}(s0)`), tt(`${s.off + frame.size}(sp)`), s.size, tt(s.name), texEsc(t(`frame.k.${s.kind}`, { name: s.name, n: s.size, ty: s.ty ?? '' }))]);
     return table([t('th.offS0'), t('th.offSp'), t('th.bytes'), t('th.name'), t('th.content')], rows, t('tex.frame', { fn: texEsc(frame.fn), n: frame.size }));
 }
+
+export function domTex(F, cfg) {
+    const rows = cfg.rpo.map((b) => [tt(b), cfg.pred.get(b).map(tt).join(', ') || '-', b === cfg.rpo[0] ? '-' : tt(cfg.idom.get(b)),
+        cfg.doms.get(b).map(tt).join(', '), [...cfg.df.get(b)].map(tt).join(', ') || '-', cfg.depth.get(b)]);
+    return table([t('th.block'), t('th.preds'), t('th.idom'), t('th.doms'), t('th.df'), t('th.loop')], rows, t('tex.dom', { fn: texEsc(F.name) }));
+}
+
+export function dfgTex(F, g) {
+    const rows = g.nodes.map((n) => [n.id, tt(n.text), t(`cls.${n.cls}`), n.lat, n.start, n.alap, n.slack === 0 ? '\\textbf{0}' : n.slack]);
+    return table(['\\#', t('th.inst'), t('th.cls'), t('th.lat'), t('th.asap'), t('th.alap'), t('th.slack')], rows, t('tex.dfg', { b: texEsc(g.label), fn: texEsc(F.name), n: g.length }));
+}
