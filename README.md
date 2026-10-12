@@ -50,4 +50,4 @@ Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de 
 
 ## Licença
 
-MIT.
+GPL 3.0 (veja o arquivo LICENSE).

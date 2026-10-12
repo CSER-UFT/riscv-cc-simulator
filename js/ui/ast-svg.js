@@ -113,7 +113,7 @@ export function layoutTree(root, tr) {
         }
     }
     place(root, 0);
-    return { items, edges, width: nextX - HGAP + PAD, height: PAD * 2 + (maxDepth + 1) * H + maxDepth * VGAP };
+    return { items, edges, width: Math.ceil(nextX - HGAP + PAD), height: PAD * 2 + (maxDepth + 1) * H + maxDepth * VGAP };
 }
 
 /**
