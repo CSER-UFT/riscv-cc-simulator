@@ -33,6 +33,45 @@ function srem(a, b) {
 }
 
 /**
+ * Resultado de uma instrução sem efeitos colaterais, dados os operandos (também usado na propagação de constantes).
+ * @returns {number}
+ */
+export function evalPure(i, a, c) {
+    let r;
+    switch (i.op) {
+        case 'add': r = (a + c) | 0; break;
+        case 'sub': r = (a - c) | 0; break;
+        case 'mul': r = Math.imul(a, c); break;
+        case 'sdiv': r = sdiv(a, c); break;
+        case 'srem': r = srem(a, c); break;
+        case 'and': r = a & c; break;
+        case 'or': r = a | c; break;
+        case 'xor': r = i.ty === 'i1' ? (a ^ c) & 1 : a ^ c; break;
+        case 'shl': r = a << (c & 31); break;
+        case 'ashr': r = a >> (c & 31); break;
+        case 'fadd': r = Math.fround(a + c); break;
+        case 'fsub': r = Math.fround(a - c); break;
+        case 'fmul': r = Math.fround(a * c); break;
+        case 'fdiv': r = Math.fround(a / c); break;
+        case 'fneg': r = -a; break;
+        case 'icmp': {
+            const [x, y] = i.ty === 'ptr' ? [a >>> 0, c >>> 0] : [a, c];
+            r = { eq: x === y, ne: x !== y, slt: x < y, sle: x <= y, sgt: x > y, sge: x >= y, ult: x < y, ule: x <= y, ugt: x > y, uge: x >= y }[i.cond] ? 1 : 0;
+            break;
+        }
+        case 'fcmp':
+            r = { oeq: a === c, une: !(a === c), olt: a < c, ole: a <= c, ogt: a > c, oge: a >= c }[i.cond] ? 1 : 0;
+            break;
+        case 'zext': case 'ptrtoint': r = a; break;
+        case 'sitofp': r = Math.fround(a); break;
+        case 'fptosi': r = fptosi(a); break;
+        case 'bitcast': r = i.to === 'float' ? fromBits(a) : toBits(a); break;
+        default: throw new Error(`irinterp: ${i.op}`);
+    }
+    return r;
+}
+
+/**
  * @param {object} module saída de generateIR
  * @returns {{ret: number, globals: Map<string, number[]>, steps: number, counts: Map<object, number>, reason: string}}
  */
@@ -90,38 +129,12 @@ export function interpret(module, { maxSteps = 1000000 } = {}) {
                     case 'alloca': sp -= i.bytes; r = sp; break;
                     case 'load': r = read(i.ty, val(i.ptr)); break;
                     case 'store': write(i.ty, val(i.ptr), val(i.val)); break;
-                    case 'add': r = (a + c) | 0; break;
-                    case 'sub': r = (a - c) | 0; break;
-                    case 'mul': r = Math.imul(a, c); break;
-                    case 'sdiv': r = sdiv(a, c); break;
-                    case 'srem': r = srem(a, c); break;
-                    case 'and': r = a & c; break;
-                    case 'or': r = a | c; break;
-                    case 'xor': r = i.ty === 'i1' ? (a ^ c) & 1 : a ^ c; break;
-                    case 'shl': r = a << (c & 31); break;
-                    case 'ashr': r = a >> (c & 31); break;
-                    case 'fadd': r = Math.fround(a + c); break;
-                    case 'fsub': r = Math.fround(a - c); break;
-                    case 'fmul': r = Math.fround(a * c); break;
-                    case 'fdiv': r = Math.fround(a / c); break;
-                    case 'fneg': r = -a; break;
-                    case 'icmp': {
-                        const [x, y] = i.ty === 'ptr' ? [a >>> 0, c >>> 0] : [a, c];
-                        r = { eq: x === y, ne: x !== y, slt: x < y, sle: x <= y, sgt: x > y, sge: x >= y, ult: x < y, ule: x <= y, ugt: x > y, uge: x >= y }[i.cond] ? 1 : 0;
-                        break;
-                    }
-                    case 'fcmp':
-                        r = { oeq: a === c, une: !(a === c), olt: a < c, ole: a <= c, ogt: a > c, oge: a >= c }[i.cond] ? 1 : 0;
-                        break;
-                    case 'zext': case 'ptrtoint': r = a; break;
-                    case 'sitofp': r = Math.fround(a); break;
-                    case 'fptosi': r = fptosi(a); break;
                     case 'gep': r = (val(i.base) + 4 * val(i.index)) | 0; break;
                     case 'call': r = call(fns.get(i.fn), i.args.map((x) => val(x.val))); break;
                     case 'br': next = i.target; break;
                     case 'condbr': next = val(i.cond) ? i.t : i.f; break;
                     case 'ret': sp = spIn; return i.val ? val(i.val) : 0;
-                    default: throw new Error(`irinterp: ${i.op}`);
+                    default: r = evalPure(i, a, c);
                 }
                 if (i.dst) env.set(i.dst, r);
                 if (next) break;

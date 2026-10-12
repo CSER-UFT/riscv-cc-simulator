@@ -29,7 +29,7 @@ export default {
 <dl>
     <dt>MiniC code</dt><dd>Editor with syntax highlighting. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compiles and runs again; <kbd>Tab</kbd> inserts four spaces. The text is kept in the browser for the next visit.</dd>
     <dt>Options</dt><dd><strong>IR comments</strong> places, next to each piece of assembly, the IR instruction that generated it; <strong>Source code lines</strong> interleaves the program lines as comments.</dd>
-    <dt>IR</dt><dd>Chooses the IR shown in the code and graph tabs: unoptimized (like <code>clang -O0</code>) or after mem2reg, in SSA form.</dd>
+    <dt>IR</dt><dd>Chooses the IR shown in the code and graph tabs: unoptimized (like <code>clang -O0</code>) after mem2reg, in SSA form, or with the optimizations chosen in the Optimizations tab.</dd>
     <dt>Execution</dt><dd>The assembly is assembled and run by the same functional simulator as the Processor Simulator. The IR is also interpreted, and both results must match (the panel warns if they do not). The limit is two million instructions.</dd>
     <dt>Phases</dt><dd>Click a phase to open the matching tab.</dd>
     <dt>Linked views</dt><dd>A line clicked in the editor, in the IR or in the assembly is highlighted together with the matching lines in the other two views.</dd>
@@ -198,6 +198,30 @@ addi s0, sp, 32      # s0 points to the top of the frame</code></pre>
 </dl>
 <p>The block table compares the estimated frequency with the measured one, per call. The difference shows the limit of heuristics: in the short loops of the matrix multiplication, of 3 iterations, the estimate assumes 32. That is why compilers accept a real execution profile (profile guided optimization, PGO).</p>
 <p>The log scale helps when values vary a lot. The CSV buttons give the numbers per source line and per RISC-V instruction, for analysis in a spreadsheet or in Python.</p>`,
+        },
+        {
+            id: 'opt',
+            title: 'Classic and approximate optimizations',
+            html: `
+<p>The <strong>Optimizations</strong> tab applies passes over the IR in SSA form, like LLVM <code>opt</code>, and lists each transformation under <em>Transformations applied</em>. To see the result in the other tabs (code, graphs, stack and heat map), choose <strong>optimized</strong> in the IR selector.</p>
+<h3>Classic</h3>
+<dl>
+    <dt>Constant propagation</dt><dd>An instruction with all operands constant is computed at compile time; a branch with a constant condition becomes unconditional, blocks that become unreachable are removed and a block whose single predecessor only branches to it is merged into that predecessor (like <code>sccp</code> and <code>simplifycfg</code>).</dd>
+    <dt>Simplification</dt><dd>Algebraic identities (<code>x + 0</code>, <code>x * 1</code>, <code>x * 0</code>, <code>x - x</code>) and strength reduction: multiplying by a power of 2 becomes a shift (<code>instcombine</code>).</dd>
+    <dt>Common subexpressions</dt><dd>An instruction equal to another that dominates it is replaced by it, using the dominator tree; a repeated <code>load</code> in the same block, with no <code>store</code> or call in between, reuses the previous one (<code>gvn</code>, <code>early-cse</code>).</dd>
+    <dt>Loop invariant code (LICM)</dt><dd>An instruction without side effects whose operands come from outside the loop is moved to the block before it, from the innermost loop to the outermost. In the matrix multiplication, <code>i * n</code> leaves the <code>k</code> loop and then the <code>j</code> loop.</dd>
+    <dt>Dead code</dt><dd>Instructions without side effects whose value nobody uses (<code>dce</code>).</dd>
+</dl>
+<p>The simulator tests check that classic optimizations never change the result, on every example and on random programs.</p>
+<h3>Approximate</h3>
+<p><strong>Approximate computing</strong> accepts a controlled error in the outputs in exchange for performance or energy. The techniques here never touch what computes addresses (<code>getelementptr</code>) or branch conditions, so the program keeps reading the right memory and finishing.</p>
+<dl>
+    <dt>Loop perforation</dt><dd>The induction variable advances <em>k</em> steps at a time, and the loop runs only one of every <em>k</em> iterations (Sidiroglou and colleagues, 2011). It is only applied to loops that exit through an ordered comparison (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>), so the stop value cannot be skipped.</dd>
+    <dt>Float precision</dt><dd>The result of each float operation has its mantissa truncated to <em>m</em> bits, with <code>bitcast</code> and <code>and</code>, simulating a narrower floating point unit.</dd>
+    <dt>Approximate multiplication</dt><dd>The <em>k</em> least significant bits of the operands of each integer data multiplication are zeroed, as in a truncated multiplier.</dd>
+</dl>
+<p>The table compares the versions in instructions, pipeline cycles, speedup, result of <code>main</code> and error. The <strong>mean relative error</strong> is the mean, over the return of <code>main</code> and every element of the global variables, of |approximate − exact| / |exact| (capped at 100% per element). The <strong>Sweep</strong> button repeats the measurement for several parameter values and draws the error versus gain curve, exportable as SVG and CSV.</p>
+<p class="tip">Precision reduction and approximate multiplication are emulated in software, with extra instructions, so here they are slower: their real gain comes from an approximate hardware unit, with less area and energy. Loop perforation, on the other hand, already saves time in software.</p>`,
         },
         {
             id: 'cpu',

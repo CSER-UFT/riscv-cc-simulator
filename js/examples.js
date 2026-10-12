@@ -260,4 +260,55 @@ int main() {
 }
 `,
     },
+    {
+        id: 'pi',
+        name: { pt: 'Pi pela série de Leibniz (float)', en: 'Pi by the Leibniz series (float)' },
+        expect: Math.fround(3.1390933990478516),
+        code: `// pi = 4 (1 - 1/3 + 1/5 - 1/7 + ...)
+// Bom para a aba Otimizações: perfuração de laço e redução de precisão.
+float main() {
+    float s = 0.0;
+    float sinal = 1.0;
+    for (int k = 0; k < 400; k++) {
+        s = s + sinal / (2 * k + 1);
+        sinal = -sinal;
+    }
+    return 4 * s;
+}
+`,
+    },
+    {
+        id: 'filtro',
+        name: { pt: 'Filtro de média (float)', en: 'Mean filter (float)' },
+        expect: Math.fround(71.66667175292969),
+        code: `// Suaviza um sinal com a média de três vizinhos, como um filtro de imagem.
+float x[16] = {1.0, 3.5, 2.0, 8.0, 6.5, 4.0, 9.5, 7.0, 3.0, 2.5, 6.0, 8.5, 5.0, 1.5, 4.5, 7.5};
+float y[16];
+
+float main() {
+    for (int i = 1; i < 15; i++)
+        y[i] = (x[i - 1] + x[i] + x[i + 1]) / 3;
+    float s = 0.0;
+    for (int i = 0; i < 16; i++)
+        s += y[i];
+    return s;
+}
+`,
+    },
+    {
+        id: 'produto',
+        name: { pt: 'Produto escalar (inteiros)', en: 'Dot product (integers)' },
+        expect: 1779,
+        code: `// Produto escalar de inteiros. Bom para a multiplicação aproximada.
+int a[8] = {12, 7, 33, 21, 5, 18, 9, 40};
+int b[8] = {3, 14, 8, 25, 31, 6, 17, 11};
+
+int main() {
+    int s = 0;
+    for (int i = 0; i < 8; i++)
+        s += a[i] * b[i];
+    return s;
+}
+`,
+    },
 ];

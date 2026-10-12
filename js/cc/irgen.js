@@ -501,6 +501,7 @@ export function instText(i) {
         case 'fptosi': return `${d}fptosi float ${V(i.a)} to i32`;
         case 'ptrtoint': return `${d}ptrtoint ptr ${V(i.a)} to i32`;
         case 'fneg': return `${d}fneg float ${V(i.a)}`;
+        case 'bitcast': return `${d}bitcast ${i.from} ${V(i.a)} to ${i.to}`;
         case 'gep': return `${d}getelementptr inbounds ${i.elem}, ptr ${V(i.base)}, i32 ${V(i.index)}`;
         case 'br': return `br label %${i.target}`;
         case 'condbr': return `br i1 ${V(i.cond)}, label %${i.t}, label %${i.f}`;

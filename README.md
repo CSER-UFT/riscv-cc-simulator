@@ -16,6 +16,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 * **Fluxo de controle**: grafo de fluxo de controle em camadas, árvore de dominadores, fronteira de dominância e laços naturais com a profundidade de aninhamento; um clique num bloco destaca os seus dominadores e a sua fronteira.
 * **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; cadeias de definição e uso da função.
 * **Mapa de calor** no código fonte, na IR, no assembly e no CFG: frequência estimada dos blocos (como a BlockFrequencyInfo do LLVM), execuções medidas e ciclos e bolhas de cada instrução no monociclo, no pipeline ou na emissão dupla do simulador de processadores, com ou sem caches; comparação entre a frequência estimada e a medida e exportação em CSV.
+* **Otimizações** sobre a SSA, cada uma com a lista do que transformou: propagação de constantes e de desvios com junção de blocos, simplificação algébrica e redução de força, eliminação de subexpressões comuns e de loads repetidos, movimentação de código invariante (LICM) e eliminação de código morto; e **aproximações**: perfuração de laço, redução da precisão do float e multiplicação inteira aproximada, com o erro das saídas, a aceleração em ciclos e a varredura de erro contra ganho, exportável em SVG e CSV.
 * **Registro de ativação** de cada função em SVG, com os deslocamentos em relação a `s0` e a `sp`.
 * **Execução** do assembly no mesmo simulador funcional do riscv-cpu-simulator (valor de retorno de `main`, instruções executadas, variáveis globais) e botão para abrir o código gerado no simulador de processadores, no modelo com pipeline.
 * Exportações: figuras em SVG independentes, grafos no formato DOT do Graphviz (como `opt -passes=dot-cfg`), tabelas em LaTeX (cabeçalho com fundo `tabAzul` e texto branco, `\hline`, sem booktabs), IR (`.ll`) e assembly (`.s`).
@@ -38,12 +39,13 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 | `js/cc/cfg.js` | CFG, ordem pós-fixa reversa, dominadores (Cooper, Harvey e Kennedy), fronteira de dominância, laços naturais |
 | `js/cc/dfg.js` | grafo de fluxo de dados por bloco, dependências de memória, ASAP, ALAP e caminho crítico; definições e usos |
 | `js/cc/profile.js` | frequência estimada dos blocos, perfil por instrução no simulador de processadores |
+| `js/cc/opt.js` | otimizações clássicas e aproximadas sobre a SSA, erro das saídas |
+| `js/cc/experiment.js` | medida e varredura de erro contra ganho |
 | `js/cc/irinterp.js` | interpretador da IR, usado como oráculo |
 | `js/vendor/cpu/` | montador, simulador funcional e modelos de processador copiados do riscv-cpu-simulator |
 
 ## Próximas etapas previstas
 
-* Otimizações clássicas e aproximadas, com a relação entre erro e ganho.
 * Alocação de registradores, escalonamento para o processador com despacho duplo e escalonamento no estilo da síntese de alto nível.
 
 ## Testes
@@ -52,7 +54,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 npm test
 ```
 
-Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados com laços e trocas de variáveis; em todos, a IR interpretada, a IR depois da mem2reg e o assembly gerado a partir de cada uma precisam dar o mesmo resultado. Verificam também os dominadores, as fronteiras e os laços de programas conhecidos, o caminho crítico e as dependências de memória, a saída da mem2reg no formato do LLVM e os arquivos DOT. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
+Compilam todos os exemplos e dezenas de programas com casos difíceis (falta de registradores, valores vivos durante chamadas, quadros maiores que 2 KiB, divisão por zero, conversões, aritmética e comparação de ponteiros, oito parâmetros misturados, curto circuito, sombra de nomes) e 150 programas sorteados com laços e trocas de variáveis; em todos, a IR interpretada, a IR depois da mem2reg, a IR com as otimizações clássicas e o assembly gerado a partir de cada uma precisam dar o mesmo resultado. As aproximações são conferidas quanto a terminar, acessar a memória certa e ter erro crescente com a agressividade. Verificam também os dominadores, as fronteiras e os laços de programas conhecidos, o caminho crítico e as dependências de memória, a saída da mem2reg no formato do LLVM e os arquivos DOT. Verificam também os erros de cada fase, o formato da IR e o mapa de linhas entre fonte, IR e assembly.
 
 ## Licença
 

@@ -54,7 +54,7 @@ function operands(i) {
         case 'condbr': return [i.cond];
         case 'ret': return i.val ? [i.val] : [];
         case 'call': return i.args.map((a) => a.val);
-        case 'zext': case 'sitofp': case 'fptosi': case 'ptrtoint': case 'fneg': return [i.a];
+        case 'zext': case 'sitofp': case 'fptosi': case 'ptrtoint': case 'fneg': case 'bitcast': return [i.a];
         default: return [i.a, i.b];
     }
 }
@@ -568,6 +568,15 @@ function genFunction(F, emitLine, poolLabel, opts) {
                 const a = getReg(i.a);
                 release([i.a]);
                 define(d, reuseOrMove(a, false));
+                return;
+            }
+            case 'bitcast': {
+                const a = getReg(i.a);
+                release([i.a]);
+                const toF = i.to === 'float';
+                const r = alloc(toF);
+                emit(toF ? `fmv.w.x ${r}, ${a}` : `fmv.x.w ${r}, ${a}`);
+                define(d, r);
                 return;
             }
             case 'sitofp': {

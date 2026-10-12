@@ -35,6 +35,7 @@ export function compile(source, opts = {}) {
     const M = mem2regModule(r.module);
     r.ssa = { module: M.module, report: M.report, ir: printModule(M.module) };
     r.phase = 'asm';
+    r.genOpts = { source, irComments: opts.irComments, srcComments: opts.srcComments, tr: opts.tr ?? null };
     const gen = (module) => {
         const A = generateAsm(module, { source, irComments: opts.irComments, srcComments: opts.srcComments });
         return { frames: A.frames, out: A.out, asm: A.render(opts.tr ?? null), mainFloat: A.mainFloat };
@@ -49,4 +50,14 @@ export function compile(source, opts = {}) {
     r.ssa.asm = B.asm;
     r.phase = 'done';
     return r;
+}
+
+/**
+ * IR impressa, assembly e quadros de um módulo qualquer (por exemplo, o resultado das otimizações).
+ * @param {object} r saída de compile()
+ */
+export function buildVariant(r, module) {
+    const ir = printModule(module);
+    const A = generateAsm(module, r.genOpts);
+    return { module, ir, asm: A.render(r.genOpts.tr), frames: A.frames };
 }

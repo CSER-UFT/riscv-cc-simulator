@@ -12,6 +12,9 @@ const same = (r) => {
     assert.equal(r.ssaAsm.reason, 'end');
     assert.equal(r.ssaAsm.ret, r.ir.ret, 'assembly da SSA');
     for (const [k, v] of r.ir.globals) assert.deepEqual(r.ssaAsm.globals.get(k), v, `global ${k} (SSA)`);
+    assert.equal(r.optIr.ret, r.ir.ret, 'IR otimizada');
+    assert.equal(r.optAsm.ret, r.ir.ret, 'assembly otimizado');
+    for (const [k, v] of r.ir.globals) assert.deepEqual(r.optAsm.globals.get(k), v, `global ${k} (otimizado)`);
 };
 
 for (const e of EXAMPLES) {

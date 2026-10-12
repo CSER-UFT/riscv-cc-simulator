@@ -50,7 +50,7 @@
                         <label><input type="checkbox" id="optIr" checked /> <span data-i18n="opt.ir">Comentários com a IR</span></label>
                         <label><input type="checkbox" id="optSrc" checked /> <span data-i18n="opt.src">Linhas do código fonte</span></label>
                     </div>
-                    <label><span data-i18n="opt.level">IR</span> <select id="irLevel"><option value="O0" data-i18n="level.O0">sem otimização (-O0)</option><option value="ssa" data-i18n="level.ssa">depois da mem2reg (SSA)</option></select></label>
+                    <label><span data-i18n="opt.level">IR</span> <select id="irLevel"><option value="O0" data-i18n="level.O0">sem otimização (-O0)</option><option value="ssa" data-i18n="level.ssa">depois da mem2reg (SSA)</option><option value="opt" data-i18n="level.opt">otimizada (aba Otimizações)</option></select></label>
                 </section>
                 <section style="margin-top:16px">
                     <h2 data-i18n="run.title">Execução</h2>
@@ -69,6 +69,7 @@
                         <button type="button" class="btn" data-tab="cfg" data-i18n="tab.cfg">Fluxo de controle</button>
                         <button type="button" class="btn" data-tab="dfg" data-i18n="tab.dfg">Fluxo de dados</button>
                         <button type="button" class="btn" data-tab="heat" data-i18n="tab.heat">Mapa de calor</button>
+                        <button type="button" class="btn" data-tab="opt" data-i18n="tab.opt">Otimizações</button>
                     </div>
 
                     <div class="pane" id="pane-tokens">
@@ -194,6 +195,44 @@
                             <button type="button" class="btn outline" id="heatCsvSrc" data-i18n="exp.csvSrc">CSV por linha do fonte</button>
                             <button type="button" class="btn outline" id="heatCsvAsm" data-i18n="exp.csvAsm">CSV por instrução RISC-V</button>
                             <button type="button" class="btn outline" id="heatTex" data-i18n="exp.tex">Tabela em LaTeX</button>
+                        </div>
+                    </div>
+
+                    <div class="pane" id="pane-opt">
+                        <p class="note" data-i18n="opt.note"></p>
+                        <div class="opt-grid">
+                            <div class="opt-box">
+                                <h3 data-i18n="opt.classic">Otimizações clássicas</h3>
+                                <label class="check"><input type="checkbox" id="opt-const" checked /> <span><b data-i18n="opt.pass.const"></b>: <span data-i18n="opt.desc.const"></span></span></label>
+                                <label class="check"><input type="checkbox" id="opt-simplify" checked /> <span><b data-i18n="opt.pass.simplify"></b>: <span data-i18n="opt.desc.simplify"></span></span></label>
+                                <label class="check"><input type="checkbox" id="opt-cse" checked /> <span><b data-i18n="opt.pass.cse"></b>: <span data-i18n="opt.desc.cse"></span></span></label>
+                                <label class="check"><input type="checkbox" id="opt-licm" checked /> <span><b data-i18n="opt.pass.licm"></b>: <span data-i18n="opt.desc.licm"></span></span></label>
+                                <label class="check"><input type="checkbox" id="opt-dce" checked /> <span><b data-i18n="opt.pass.dce"></b>: <span data-i18n="opt.desc.dce"></span></span></label>
+                            </div>
+                            <div class="opt-box">
+                                <h3 data-i18n="opt.approx">Aproximações</h3>
+                                <label><span data-i18n="opt.pass.perforate">Perfuração de laço</span> <select id="optLoop"></select> <span data-i18n="opt.factor">fator</span> <select id="optK"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label>
+                                <p class="note" id="sweepLoopNote"></p>
+                                <label><span data-i18n="opt.pass.fprec">Precisão do float</span> <select id="optBits"><option value="23">23</option><option value="18">18</option><option value="14">14</option><option value="12">12</option><option value="10">10</option><option value="8">8</option><option value="6">6</option><option value="4">4</option><option value="2">2</option></select> <span data-i18n="opt.bitsUnit">bits de mantissa</span></label>
+                                <label><span data-i18n="opt.pass.amul">Multiplicação aproximada</span> <select id="optMul"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="12">12</option></select> <span data-i18n="opt.mulUnit">bits zerados</span></label>
+                            </div>
+                        </div>
+                        <div class="scroll-box"><table id="optTable"></table></div>
+                        <p class="note" data-i18n="opt.levelNote"></p>
+                        <h3 id="optLogTitle"></h3>
+                        <ol id="optLog" class="opt-log"></ol>
+                        <h3 data-i18n="opt.tradeoff">Erro contra ganho</h3>
+                        <div class="row">
+                            <label style="margin:0"><span data-i18n="opt.technique">Técnica</span> <select id="sweepTech"><option value="perforate" data-i18n="opt.pass.perforate"></option><option value="fprec" data-i18n="opt.pass.fprec"></option><option value="amul" data-i18n="opt.pass.amul"></option></select></label>
+                            <button type="button" class="btn primary" id="sweepBtn" data-i18n="opt.sweep">Varrer</button>
+                            <span class="note" id="sweepStatus"></span>
+                            <button type="button" class="btn outline" id="optSvgBtn" data-i18n="exp.svg">Exportar figura (SVG)</button>
+                            <button type="button" class="btn outline" id="optCsvBtn" data-i18n="exp.csv">CSV</button>
+                        </div>
+                        <p class="note" data-i18n="opt.sweepNote"></p>
+                        <div class="graph-pair">
+                            <div class="fig-box" id="optChart"></div>
+                            <div class="scroll-box"><table id="optSweep"></table></div>
                         </div>
                     </div>
 

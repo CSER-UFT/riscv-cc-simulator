@@ -30,7 +30,7 @@ export default {
 <dl>
     <dt>Código MiniC</dt><dd>Editor com destaque de sintaxe. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compila e executa de novo; <kbd>Tab</kbd> insere quatro espaços. O texto fica guardado no navegador para a próxima visita.</dd>
     <dt>Opções</dt><dd><strong>Comentários com a IR</strong> coloca, ao lado de cada trecho do assembly, a instrução da IR que o gerou; <strong>Linhas do código fonte</strong> intercala as linhas do programa como comentários.</dd>
-    <dt>IR</dt><dd>Escolhe a IR mostrada nas abas de código e de grafos: sem otimização (como <code>clang -O0</code>) ou depois da mem2reg, na forma SSA.</dd>
+    <dt>IR</dt><dd>Escolhe a IR mostrada nas abas de código e de grafos: sem otimização (como <code>clang -O0</code>) depois da mem2reg, na forma SSA, ou com as otimizações escolhidas na aba Otimizações.</dd>
     <dt>Execução</dt><dd>O assembly é montado e executado pelo mesmo simulador funcional do Simulador de Processadores. A IR também é interpretada, e os dois resultados precisam coincidir (o quadro avisa se não coincidirem). O limite é de dois milhões de instruções.</dd>
     <dt>Fases</dt><dd>Clique em uma fase para abrir a aba correspondente.</dd>
     <dt>Ligação entre as visões</dt><dd>Uma linha clicada no editor, na IR ou no assembly fica destacada, junto com as linhas correspondentes nas outras duas visões.</dd>
@@ -199,6 +199,30 @@ addi s0, sp, 32      # s0 aponta para o topo do quadro</code></pre>
 </dl>
 <p>A tabela de blocos compara a frequência estimada com a medida, por chamada. A diferença mostra o limite das heurísticas: nos laços curtos da multiplicação de matrizes, de 3 voltas, a estimativa supõe 32. É por isso que compiladores aceitam um perfil de execução real (otimização guiada por perfil, PGO).</p>
 <p>A escala logarítmica ajuda quando os valores variam muito. Os botões de CSV trazem os números por linha do fonte e por instrução RISC-V, para análise em planilha ou Python.</p>`,
+        },
+        {
+            id: 'opt',
+            title: 'Otimizações clássicas e aproximadas',
+            html: `
+<p>A aba <strong>Otimizações</strong> aplica passagens sobre a IR em SSA, como o <code>opt</code> do LLVM, e mostra cada transformação na lista <em>Transformações aplicadas</em>. Para ver o resultado nas outras abas (código, grafos, pilha e mapa de calor), escolha <strong>otimizada</strong> no seletor IR.</p>
+<h3>Clássicas</h3>
+<dl>
+    <dt>Propagação de constantes</dt><dd>Uma instrução com todos os operandos constantes é calculada na compilação; um desvio com condição constante vira desvio incondicional, os blocos que ficam inalcançáveis saem e um bloco com um único predecessor que só desvia para ele é juntado a esse predecessor (como <code>sccp</code> e <code>simplifycfg</code>).</dd>
+    <dt>Simplificação</dt><dd>Identidades algébricas (<code>x + 0</code>, <code>x * 1</code>, <code>x * 0</code>, <code>x - x</code>) e redução de força: multiplicar por uma potência de 2 vira deslocamento (<code>instcombine</code>).</dd>
+    <dt>Subexpressões comuns</dt><dd>Uma instrução igual a outra que a domina é trocada por ela, com a árvore de dominadores; um <code>load</code> repetido no mesmo bloco, sem <code>store</code> ou chamada no meio, reaproveita o anterior (<code>gvn</code>, <code>early-cse</code>).</dd>
+    <dt>Código invariante (LICM)</dt><dd>Uma instrução sem efeito colateral cujos operandos vêm de fora do laço é levada para o bloco antes dele, do laço mais interno para o mais externo. Na multiplicação de matrizes, <code>i * n</code> sai do laço de <code>k</code> e depois do de <code>j</code>.</dd>
+    <dt>Código morto</dt><dd>Instruções sem efeito colateral cujo valor ninguém usa (<code>dce</code>).</dd>
+</dl>
+<p>Os testes do simulador conferem que as clássicas nunca mudam o resultado, em todos os exemplos e em programas sorteados.</p>
+<h3>Aproximadas</h3>
+<p>A <strong>computação aproximada</strong> aceita um erro controlado nas saídas em troca de desempenho ou energia. As técnicas daqui não mexem no que calcula endereços (<code>getelementptr</code>) nem nas condições de desvio, para que o programa continue lendo a memória certa e terminando.</p>
+<dl>
+    <dt>Perfuração de laço</dt><dd>A variável de indução avança <em>k</em> passos de cada vez, e o laço executa só uma de cada <em>k</em> iterações (Sidiroglou e colegas, 2011). Só é aplicada a laços com saída por comparação de ordem (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>), para não pular o valor de parada.</dd>
+    <dt>Precisão do float</dt><dd>O resultado de cada operação float tem a mantissa truncada para <em>m</em> bits, com <code>bitcast</code> e <code>and</code>, simulando uma unidade de ponto flutuante mais estreita.</dd>
+    <dt>Multiplicação aproximada</dt><dd>Os <em>k</em> bits menos significativos dos operandos de cada multiplicação inteira de dados são zerados, como num multiplicador truncado.</dd>
+</dl>
+<p>A tabela compara as versões em instruções, ciclos no pipeline, aceleração, resultado de <code>main</code> e erro. O <strong>erro relativo médio</strong> é a média, sobre o retorno de <code>main</code> e todos os elementos das variáveis globais, de |aproximado − exato| / |exato| (limitado a 100% por elemento). O botão <strong>Varrer</strong> repete a medida para vários valores do parâmetro e desenha a curva de erro contra ganho, exportável em SVG e CSV.</p>
+<p class="tip">A redução de precisão e a multiplicação aproximada são emuladas em software, com instruções a mais, e por isso aqui ficam mais lentas: o ganho real delas vem de uma unidade aproximada em hardware, com menos área e energia. A perfuração de laço, ao contrário, ganha tempo já em software.</p>`,
         },
         {
             id: 'cpu',

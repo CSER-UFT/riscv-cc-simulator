@@ -18,6 +18,10 @@ import { layoutDfg, dfgSvg, shortText } from './ui/dfg-svg.js';
 import { cfgDot, domDot, dfgDot } from './ui/dot.js';
 import { tokensTex, symbolsTex, frameTex, domTex, dfgTex, blocksTex } from './ui/latex.js';
 import { blockFrequencies, blockCounts, simulateProfile } from './cc/profile.js';
+import { buildVariant } from './cc/compile.js';
+import { optimize, CLASSIC, perforableLoops, outputError } from './cc/opt.js';
+import { sweep as sweepPoint, SWEEPS } from './cc/experiment.js';
+import { optChartSvg } from './ui/opt-chart.js';
 import { standaloneSvg } from './ui/svg-export.js';
 import { Help } from './ui/help.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
@@ -36,12 +40,15 @@ let tab = store.get('cc.tab') || 'code';
 let selection = { from: null, src: null, ir: null, asm: null };
 let mark = null;                 // trecho do fonte em destaque: {start, end}
 let errorLines = new Set();
-let level = store.get('cc.level') === 'ssa' ? 'ssa' : 'O0';   // IR mostrada: sem otimização ou depois da mem2reg
+let level = ['ssa', 'opt'].includes(store.get('cc.level')) ? store.get('cc.level') : 'O0';   // IR mostrada
 
-/** IR, assembly e quadros do nível escolhido. */
+/** IR, assembly e quadros do nível escolhido: sem otimização, depois da mem2reg ou com as otimizações escolhidas. */
 function V() {
-    return level === 'ssa' ? last.ssa : { module: last.module, ir: last.ir, asm: last.asm, frames: last.frames, report: null };
+    if (level === 'opt') return getOpt();
+    return level === 'ssa' ? { ...last.ssa, key: 'ssa', interp: last.ssaInterp, run: last.ssaRun }
+        : { module: last.module, ir: last.ir, asm: last.asm, frames: last.frames, report: null, key: 'O0', interp: last.interp, run: last.run };
 }
+const irTitleKey = () => ({ O0: 'code.ir', ssa: 'code.irSsa', opt: 'code.irOpt' })[level];
 
 // Editor -----------------------------------------------------------------------------------------------------
 
@@ -186,9 +193,12 @@ function runCompile() {
     renderCode();
     renderFrames();
     renderRun();
+    fillOptLoops();
+    if (c.phase === 'done' && level === 'opt') getOpt();
     renderCfg();
     renderDfg();
     heatView = null;
+    optView = null;
     showTab(tab);
     renderSelection();
 }
@@ -429,10 +439,10 @@ function renderCode() {
     const v = V();
     $('irView').innerHTML = view(v.ir.text, irLine);
     $('asmView').innerHTML = view(v.asm.text, asmLine);
-    $('irTitle').textContent = t(level === 'ssa' ? 'code.irSsa' : 'code.ir');
+    $('irTitle').textContent = t(irTitleKey());
     let nIr = 0;
     for (const F of v.module.functions) for (const b of F.blocks) nIr += b.insts.length;
-    const run = level === 'ssa' ? last.ssaRun : last.run;
+    const run = v.run;
     let stats = t('code.stats', { ir: nIr, asm: run?.program?.instructions.length ?? 0 });
     if (level === 'ssa') {
         const prom = [], kept = [];
@@ -444,6 +454,7 @@ function renderCode() {
         const list = (a) => (a.length ? [...new Set(a)].join(', ') : t('code.none'));
         stats += ` ${t('code.m2r', { promoted: list(prom), phis, kept: list(kept) })}`;
     }
+    if (level === 'opt') stats += ` ${t('code.optStats', { n: v.log.length })}`;
     $('codeStats').textContent = stats;
 }
 
@@ -622,6 +633,19 @@ $('irLevel').onchange = () => {
     heatView = null;
     if (tab === 'heat') renderHeat();
     select({ from: selection.src ? 'src' : null, src: selection.src });
+}
+/** Mudança nas otimizações: refaz o que depende do nível otimizado. */
+function optChanged() {
+    if (!last || last.phase !== 'done') return;
+    renderOpt();
+    if (level !== 'opt') return;
+    renderCode();
+    renderFrames();
+    renderCfg();
+    renderDfg();
+    heatView = null;
+    if (tab === 'heat') renderHeat();
+    renderSelection();
 };
 
 // Mapa de calor ----------------------------------------------------------------------------------------------
@@ -631,12 +655,17 @@ const heatBg = (i) => `background: color-mix(in srgb, var(--heat) ${Math.round(4
 const SUM_METRICS = new Set(['cycles', 'stalls']);
 const fmtNum = (v) => (Number.isInteger(v) ? v.toLocaleString(getLanguage() === 'en' ? 'en' : 'pt-BR') : v.toLocaleString(getLanguage() === 'en' ? 'en' : 'pt-BR', { maximumFractionDigits: v < 10 ? 2 : 1 }));
 
+/** Perfil de uma versão do programa num modelo de processador, guardado para não simular de novo. */
+function profileOf(v, model, caches = false) {
+    const key = `${v.key}|${model}|${caches}`;
+    last.profiles ??= new Map();
+    if (!last.profiles.has(key)) last.profiles.set(key, simulateProfile(v.asm.text, { model, caches }));
+    return last.profiles.get(key);
+}
+
 /** Perfil do processador escolhido, guardado por nível de IR, modelo e caches. */
 function heatProfile() {
-    const key = `${level}|${$('heatModel').value}|${$('heatCache').checked}`;
-    last.heatProfiles ??= new Map();
-    if (!last.heatProfiles.has(key)) last.heatProfiles.set(key, simulateProfile(V().asm.text, { model: $('heatModel').value, caches: $('heatCache').checked }));
-    return last.heatProfiles.get(key);
+    return profileOf(V(), $('heatModel').value, $('heatCache').checked);
 }
 
 /** Valor da medida para cada linha da IR, do assembly e do fonte, e para cada bloco. */
@@ -645,7 +674,7 @@ function heatValues(metric, prof) {
     const irL = v.ir.lines, asmL = v.asm.lines;
     const sum = SUM_METRICS.has(metric);
     const ir = new Float64Array(irL.length), asm = new Float64Array(asmL.length);
-    const interp = level === 'ssa' ? last.ssaInterp : last.interp;
+    const interp = v.interp;
     if (metric === 'static' || metric === 'irExec') {
         for (const F of v.module.functions) {
             const freq = metric === 'static' ? blockFrequencies(F).freq : null;
@@ -712,7 +741,7 @@ function renderHeat() {
         $('heatSummary').textContent = txt;
     }
     $('heatModel').disabled = !simBased && metric !== 'cycles';
-    $('heatIrTitle').textContent = t(level === 'ssa' ? 'code.irSsa' : 'code.ir');
+    $('heatIrTitle').textContent = t(irTitleKey());
 
     const unit = (x) => (x ? fmtNum(Math.round(x * 100) / 100) : '');
     const view = (text, arr, fn) => text.replace(/\n$/, '').split('\n').map((l, i) => {
@@ -738,8 +767,7 @@ function renderHeat() {
     const F = fns.find((x) => x.name === sel.value);
     const cfg = analyzeCfg(F);
     const { freq } = blockFrequencies(F, cfg);
-    const interp = level === 'ssa' ? last.ssaInterp : last.interp;
-    const cnt = blockCounts(F, interp.counts);
+    const cnt = blockCounts(F, v.interp.counts);
     const calls = cnt.get(F.blocks[0].label) || 0;
     const cyc = heatValues('cycles', prof).blocks.get(F.name);
     heatView.blockRows = cfg.rpo.map((b) => ({ b, est: freq.get(b), meas: calls ? cnt.get(b) / calls : 0, execs: cnt.get(b), cycles: cyc.get(b) }));
@@ -771,6 +799,116 @@ for (const [id, kind] of [['heatIr', 'ir'], ['heatAsm', 'asm']]) {
     });
 }
 
+// Otimizações -----------------------------------------------------------------------------------------------
+
+let optView = null, sweepRes = null, sweepRun = 0;
+function optState() {
+    return {
+        classic: CLASSIC.filter((k) => $(`opt-${k}`).checked), loop: $('optLoop').value, k: +$('optK').value,
+        bits: +$('optBits').value, mul: +$('optMul').value,
+    };
+}
+function optOptions(st, approx = true) {
+    const [fn, header] = st.loop ? st.loop.split('|') : [null, null];
+    return {
+        classic: st.classic,
+        perforate: approx && fn ? { fn, header, k: st.k } : null,
+        fprec: approx ? st.bits : null,
+        amul: approx ? st.mul : null,
+    };
+}
+/** Versão otimizada (com as escolhas atuais), guardada pela assinatura das escolhas. */
+function getOpt(approx = true) {
+    const st = optState();
+    const sig = JSON.stringify([approx, st]);
+    last.optCache ??= new Map();
+    if (!last.optCache.has(sig)) {
+        const { module, log } = optimize(last.ssa.module, optOptions(st, approx));
+        const v = buildVariant(last, module);
+        const interp = interpret(module, { maxSteps: RUN_LIMIT });
+        const run = runAsm({ ...last, module, asm: v.asm }, { maxInstructions: RUN_LIMIT });
+        last.optCache.set(sig, { ...v, key: `opt${sig}`, log, interp, run, report: null });
+    }
+    return last.optCache.get(sig);
+}
+const approxActive = (st) => (st.loop && st.k > 1) || st.bits < 23 || st.mul > 0;
+
+function fillOptLoops() {
+    const sel = $('optLoop');
+    const prev = sel.value;
+    const loops = last.ssa ? perforableLoops(last.ssa.module) : [];
+    sel.innerHTML = `<option value="">${t('opt.noLoop')}</option>` + loops.map((l) => `<option value="${esc(`${l.fn}|${l.header}`)}">${esc(t('opt.loopItem', { fn: l.fn, v: l.name, line: l.line ?? '?', h: l.header }))}</option>`).join('');
+    sel.value = [...sel.options].some((o) => o.value === prev) ? prev : '';
+    $('sweepLoopNote').textContent = loops.length ? '' : t('opt.noPerforable');
+}
+
+function renderOpt() {
+    if (!last || last.phase !== 'done') return;
+    const st = optState();
+    const fmtR = (v) => (v === null || v === undefined ? '-' : Number.isInteger(v) ? String(v) : String(Math.fround(v)));
+    const rows = [
+        [t('opt.v.O0'), { key: 'O0', asm: last.asm, interp: last.interp, run: last.run }],
+        [t('opt.v.ssa'), { key: 'ssa', asm: last.ssa.asm, interp: last.ssaInterp, run: last.ssaRun }],
+        [t('opt.v.classic', { n: st.classic.length }), getOpt(false)],
+    ];
+    if (approxActive(st)) rows.push([t('opt.v.approx'), getOpt(true)]);
+    const base = profileOf(rows[0][1], 'pipeline').cycles;
+    $('optTable').innerHTML = `<tr><th>${t('th.version')}</th><th>${t('run.irExec')}</th><th>${t('run.asmExec')}</th><th>${t('th.cyclesPipe')}</th><th>${t('th.speedup')}</th><th>${t('run.ret')}</th><th>${t('th.mre')}</th><th>${t('th.maxAbs')}</th></tr>`
+        + rows.map(([name, v]) => {
+            const prof = profileOf(v, 'pipeline');
+            const e = outputError(last.interp, v.interp);
+            const err = !e.finished ? t('opt.notEnd') : e.same ? t('opt.same') : `${(100 * e.mre).toFixed(3)}%`;
+            return `<tr><th class="left">${esc(name)}</th><td>${fmtNum(v.interp.steps)}</td><td>${v.run.errors.length ? '-' : fmtNum(v.run.executed)}</td><td>${prof.errors?.length ? '-' : fmtNum(prof.cycles)}</td>`
+                + `<td>${prof.cycles ? `${(base / prof.cycles).toFixed(2)}×` : '-'}</td><td class="mono">${esc(fmtR(v.run.ret))}</td><td>${err}</td><td>${e.finished && !e.same ? fmtNum(+e.maxAbs.toPrecision(4)) : '-'}</td></tr>`;
+        }).join('');
+    const opt = getOpt(true);
+    const byPass = new Map();
+    for (const l of opt.log) byPass.set(l.pass, (byPass.get(l.pass) ?? 0) + 1);
+    $('optLogTitle').textContent = t('opt.logTitle', { n: opt.log.length, list: [...byPass].map(([p, n]) => `${t(`opt.pass.${p}`)} ${n}`).join(', ') || t('code.none') });
+    $('optLog').innerHTML = opt.log.slice(0, 400).map((l) => `<li><span class="tag">${esc(t(`opt.pass.${l.pass}`))}</span> ${esc(t(l.key, l.p))}</li>`).join('')
+        + (opt.log.length > 400 ? `<li>${t('opt.more', { n: opt.log.length - 400 })}</li>` : '');
+    optView = { rows };
+    drawSweep();
+}
+
+function drawSweep() {
+    const tech = $('sweepTech').value;
+    if (!sweepRes || sweepRes.tech !== tech || !sweepRes.pts.length) { $('optChart').innerHTML = ''; $('optSweep').innerHTML = ''; return; }
+    const xKey = tech === 'perforate' ? 'speedup' : 'x';
+    const pLabel = (p) => t(`opt.p.${tech}`, { v: p.x });
+    $('optChart').innerHTML = optChartSvg(sweepRes.pts, {
+        xKey, pLabel, title: t(`opt.chart.${tech}`), xLabel: t(xKey === 'speedup' ? 'opt.axis.speedup' : `opt.axis.${tech}`), yLabel: t('opt.axis.mre'),
+    });
+    $('optSweep').innerHTML = `<tr><th>${t(`opt.param.${tech}`)}</th><th>${t('th.cyclesPipe')}</th><th>${t('th.speedup')}</th><th>${t('run.ret')}</th><th>${t('th.mre')}</th><th>${t('th.maxAbs')}</th></tr>`
+        + sweepRes.pts.map((p) => `<tr><td>${esc(pLabel(p))}</td><td>${p.cycles === null ? '-' : fmtNum(p.cycles)}</td><td>${p.speedup ? `${p.speedup.toFixed(2)}×` : '-'}</td><td class="mono">${p.finished ? esc(String(p.ret)) : t('opt.notEnd')}</td>`
+            + `<td>${p.finished ? `${(100 * p.mre).toFixed(3)}%` : '-'}</td><td>${p.finished && !p.same ? fmtNum(+p.maxAbs.toPrecision(4)) : '-'}</td></tr>`).join('');
+}
+
+$('sweepBtn').onclick = () => {
+    if (!last || last.phase !== 'done') return;
+    const tech = $('sweepTech').value;
+    const st = optState();
+    const loop = st.loop ? { fn: st.loop.split('|')[0], header: st.loop.split('|')[1] } : null;
+    if (tech === 'perforate' && !loop) { $('sweepStatus').textContent = t('opt.chooseLoop'); return; }
+    const run = ++sweepRun;
+    const values = SWEEPS[tech];
+    sweepRes = { tech, pts: [] };
+    const c = last;
+    let k = 0;
+    const step = () => {
+        if (run !== sweepRun || c !== last) return;
+        if (k >= values.length) { $('sweepStatus').textContent = t('opt.sweepDone', { n: values.length }); return; }
+        $('sweepStatus').textContent = t('opt.sweeping', { i: k + 1, n: values.length });
+        sweepRes.pts.push(...sweepPoint(c, tech, { classic: st.classic, loop }, { values: [values[k]] }));
+        k++;
+        drawSweep();
+        setTimeout(step, 0);
+    };
+    setTimeout(step, 0);
+};
+$('sweepTech').onchange = drawSweep;
+for (const id of [...CLASSIC.map((k) => `opt-${k}`), 'optLoop', 'optK', 'optBits', 'optMul']) $(id).addEventListener('change', optChanged);
+
 // Abas -------------------------------------------------------------------------------------------------------
 
 function available(name) {
@@ -793,6 +931,7 @@ function showTab(name) {
     $('pending').classList.toggle('hidden', ok);
     mark = null;
     if (ok && name === 'heat' && !heatView) renderHeat();
+    if (ok && name === 'opt' && !optView) renderOpt();
     if (ok && steppers[name]) steppers[name].show(steppers[name].cur);
     else refreshMarks();
 }
@@ -811,7 +950,7 @@ const baseName = () => exampleId ?? 'programa';
 $('tokTex').onclick = () => last && download(`${baseName()}-tokens.tex`, tokensTex(last.tokens), 'application/x-tex');
 $('symTex').onclick = () => last?.sema && download(`${baseName()}-${getLanguage() === 'en' ? 'symbols' : 'simbolos'}.tex`, symbolsTex(symbolRows()), 'application/x-tex');
 $('frameTex').onclick = () => { const f = currentFrame(); if (f) download(`${f.fn}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.tex`, frameTex(f), 'application/x-tex'); };
-const lvlSuffix = () => (level === 'ssa' ? '-mem2reg' : '');
+const lvlSuffix = () => ({ O0: '', ssa: '-mem2reg', opt: '-opt' })[level];
 $('dlLl').onclick = () => last?.ir && download(`${baseName()}${lvlSuffix()}.ll`, V().ir.text, 'text/plain');
 $('dlS').onclick = () => last?.asm && download(`${baseName()}${lvlSuffix()}.s`, V().asm.text, 'text/plain');
 $('astSvg').onclick = () => {
@@ -853,6 +992,13 @@ $('heatCsvAsm').onclick = () => {
     download(`${baseName()}${lvlSuffix()}-${prof.model}-riscv.csv`, csv(rows), 'text/csv');
 };
 $('heatTex').onclick = () => { if (heatView?.blockRows) download(`${heatView.F.name}-${getLanguage() === 'en' ? 'blocks' : 'blocos'}.tex`, blocksTex(heatView.F, heatView.blockRows), 'application/x-tex'); };
+$('optSvgBtn').onclick = () => { const s2 = svgOf('optChart'); if (s2) download(`${baseName()}-${sweepRes.tech}.svg`, standaloneSvg(s2), 'image/svg+xml'); };
+$('optCsvBtn').onclick = () => {
+    if (!sweepRes?.pts.length) return;
+    const rows = [['technique', 'parameter', 'cycles_pipeline', 'speedup', 'main_result', 'mean_relative_error', 'max_abs_error', 'finished']];
+    for (const p of sweepRes.pts) rows.push([sweepRes.tech, p.x, p.cycles ?? '', p.speedup ?? '', p.ret ?? '', p.mre, p.maxAbs, p.finished]);
+    download(`${baseName()}-${sweepRes.tech}.csv`, csv(rows), 'text/csv');
+};
 $('frameSvg').onclick = () => {
     const svg = $('frameFig').querySelector('svg');
     if (svg) download(`${$('frameFn').value}-${getLanguage() === 'en' ? 'frame' : 'quadro'}.svg`, standaloneSvg(svg), 'image/svg+xml');

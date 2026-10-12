@@ -52,5 +52,7 @@ int main() {
         assert.equal(res.asm.ret, res.ir.ret, src);
         assert.equal(res.ssaIr.ret, res.ir.ret, src);
         assert.equal(res.ssaAsm.ret, res.ir.ret, src);
+        assert.equal(res.optIr.ret, res.ir.ret, src);
+        assert.equal(res.optAsm.ret, res.ir.ret, src);
     }
 });
