@@ -29,6 +29,9 @@ import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
 const $ = (id) => document.getElementById(id);
 const CPU_URL = 'https://cser-uft.github.io/riscv-cpu-simulator/';
 const RUN_LIMIT = 2000000;
+// Enquanto se digita, um limite menor: um laço infinito não trava o editor. O botão Compilar usa o limite cheio.
+const LIVE_LIMIT = 100000;
+let runLimit = RUN_LIMIT;
 const store = {
     get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* só nesta visita */ } },
@@ -115,7 +118,7 @@ code.addEventListener('input', () => {
     mark = null;
     refreshEditor();
     clearTimeout(compileTimer);
-    compileTimer = setTimeout(() => runCompile(), 350);
+    compileTimer = setTimeout(() => runCompile(false), 350);
 });
 code.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
@@ -170,15 +173,16 @@ $('example').onchange = () => { if ($('example').value) { loadExample($('example
 
 // Compilação e execução --------------------------------------------------------------------------------------
 
-function runCompile() {
+function runCompile(full = true) {
+    runLimit = full ? RUN_LIMIT : LIVE_LIMIT;
     clearTimeout(compileTimer);
     stop();
     const c = compile(code.value, { irComments: $('optIr').checked, srcComments: $('optSrc').checked, tr: t });
     if (c.phase === 'done') {
-        c.interp = interpret(c.module, { maxSteps: RUN_LIMIT });
-        c.run = runAsm(c, { maxInstructions: RUN_LIMIT });
-        c.ssaInterp = interpret(c.ssa.module, { maxSteps: RUN_LIMIT });
-        c.ssaRun = runAsm({ ...c, module: c.ssa.module, asm: c.ssa.asm }, { maxInstructions: RUN_LIMIT });
+        c.interp = interpret(c.module, { maxSteps: runLimit });
+        c.run = runAsm(c, { maxInstructions: runLimit });
+        c.ssaInterp = interpret(c.ssa.module, { maxSteps: runLimit });
+        c.ssaRun = runAsm({ ...c, module: c.ssa.module, asm: c.ssa.asm }, { maxInstructions: runLimit });
     }
     last = c;
     errorLines = new Set(c.errors.map((e) => e.line));
@@ -236,7 +240,7 @@ function renderRun() {
     h += `<tr><th>${t('run.static')}</th><td>${r.program.instructions.length}</td><td>${q.errors.length ? '-' : q.program.instructions.length}</td></tr>`;
     h += '</table>';
     h += `<p class="note">${t('run.ssaNote')}</p>`;
-    if (limit) h += `<p class="note warn">${t('run.limit', { n: RUN_LIMIT })}</p>`;
+    if (limit) h += `<p class="note warn">${t('run.limit', { n: fmtNum(runLimit) })}${runLimit < RUN_LIMIT ? ` ${t('run.liveLimit')}` : ''}</p>`;
     if (mismatch) h += `<p class="note warn">${t('run.mismatch')}</p>`;
     if (r.globals.size) {
         h += `<p class="note" style="margin:10px 0 4px">${t('run.globals')}</p><table><tr><th>${t('th.var')}</th><th>${t('th.values')}</th></tr>`;
@@ -657,9 +661,11 @@ const fmtNum = (v) => (Number.isInteger(v) ? v.toLocaleString(getLanguage() === 
 
 /** Perfil de uma versão do programa num modelo de processador, guardado para não simular de novo. */
 function profileOf(v, model, caches = false) {
-    const key = `${v.key}|${model}|${caches}`;
+    // Enquanto se digita, a simulação de ciclos também tem limite menor.
+    const maxCycles = runLimit < RUN_LIMIT ? 5000 : 100000;
+    const key = `${v.key}|${model}|${caches}|${maxCycles}`;
     last.profiles ??= new Map();
-    if (!last.profiles.has(key)) last.profiles.set(key, simulateProfile(v.asm.text, { model, caches }));
+    if (!last.profiles.has(key)) last.profiles.set(key, simulateProfile(v.asm.text, { model, caches, maxCycles }));
     return last.profiles.get(key);
 }
 
@@ -737,7 +743,7 @@ function renderHeat() {
         });
         const l1d = st.memory?.levels?.L1D;
         if (l1d && (l1d.hits !== undefined)) txt += t('heat.summaryCache', { hits: fmtNum(l1d.hits), misses: fmtNum(l1d.misses) });
-        if (!prof.finished) txt += ` ${t('heat.limit', { n: fmtNum(100000) })}`;
+        if (!prof.finished) txt += ` ${t('heat.limit', { n: fmtNum(prof.stats.cycles) })}`;
         $('heatSummary').textContent = txt;
     }
     $('heatModel').disabled = !simBased && metric !== 'cycles';
@@ -825,8 +831,8 @@ function getOpt(approx = true) {
     if (!last.optCache.has(sig)) {
         const { module, log } = optimize(last.ssa.module, optOptions(st, approx));
         const v = buildVariant(last, module);
-        const interp = interpret(module, { maxSteps: RUN_LIMIT });
-        const run = runAsm({ ...last, module, asm: v.asm }, { maxInstructions: RUN_LIMIT });
+        const interp = interpret(module, { maxSteps: runLimit });
+        const run = runAsm({ ...last, module, asm: v.asm }, { maxInstructions: runLimit });
         last.optCache.set(sig, { ...v, key: `opt${sig}`, log, interp, run, report: null });
     }
     return last.optCache.get(sig);
@@ -1016,6 +1022,44 @@ $('cpu').onclick = () => {
     window.open(`${CPU_URL}#s=${encodeShare(payload)}`, '_blank', 'noopener');
 };
 
+function decodeShare(str) {
+    const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0))));
+}
+function flash(el, text) {
+    const old = el.textContent;
+    el.textContent = text;
+    setTimeout(() => { el.textContent = old; }, 1500);
+}
+// Link de compartilhamento: o código, a aba, o nível de IR e as escolhas da aba Otimizações.
+$('shareLink').onclick = async () => {
+    const payload = { code: code.value, tab, level, opt: optState() };
+    const url = `${location.origin}${location.pathname}#s=${encodeShare(payload)}`;
+    try {
+        await navigator.clipboard.writeText(url);
+        flash($('shareLink'), t('ui.linkCopied'));
+    } catch {
+        window.prompt(t('ui.copyThisLink'), url);
+    }
+};
+function applyShared(p) {
+    if (typeof p.code !== 'string') return false;
+    code.value = p.code;
+    exampleId = null;
+    if (['O0', 'ssa', 'opt'].includes(p.level)) { level = p.level; $('irLevel').value = level; }
+    if (typeof p.tab === 'string' && document.querySelector(`#tabs [data-tab="${p.tab}"]`)) tab = p.tab;
+    runCompile();
+    const o = p.opt;
+    if (o) {
+        for (const k of CLASSIC) $(`opt-${k}`).checked = (o.classic ?? CLASSIC).includes(k);
+        for (const [id, v] of [['optLoop', o.loop], ['optK', o.k], ['optBits', o.bits], ['optMul', o.mul]]) {
+            if (v !== undefined && [...$(id).options].some((x) => x.value === String(v))) $(id).value = String(v);
+        }
+        optChanged();
+    }
+    return true;
+}
+
 $('run').onclick = () => runCompile();
 $('optIr').onchange = () => runCompile();
 $('optSrc').onchange = () => runCompile();
@@ -1082,6 +1126,16 @@ langSelect.addEventListener('change', () => {
 applyDomTranslations();
 const savedEx = store.get('cc.example');
 const savedCode = store.get('cc.code');
-if (savedEx === '' && savedCode) { exampleId = null; code.value = savedCode; } else loadExample(EXAMPLES.some((e) => e.id === savedEx) ? savedEx : EXAMPLES[0].id);
-fillExamples();
-runCompile();
+let shared = null;
+if (location.hash.startsWith('#s=')) {
+    try { shared = decodeShare(location.hash.slice(3)); } catch { shared = null; }
+    history.replaceState(null, '', location.pathname + location.search);
+}
+if (shared) {
+    fillExamples();
+    if (!applyShared(shared)) { loadExample(EXAMPLES[0].id); runCompile(); }
+} else {
+    if (savedEx === '' && savedCode) { exampleId = null; code.value = savedCode; } else loadExample(EXAMPLES.some((e) => e.id === savedEx) ? savedEx : EXAMPLES[0].id);
+    fillExamples();
+    runCompile();
+}

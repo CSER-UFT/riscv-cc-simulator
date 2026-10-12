@@ -28,11 +28,13 @@ export default {
             html: `
 <dl>
     <dt>MiniC code</dt><dd>Editor with syntax highlighting. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compiles and runs again; <kbd>Tab</kbd> inserts four spaces. The text is kept in the browser for the next visit.</dd>
+    <dt>Copy link</dt><dd>Copies a link that reopens the program in the editor, with the open tab, the IR level and the choices of the Optimizations tab. Good for a whole class to start from the same example.</dd>
     <dt>Options</dt><dd><strong>IR comments</strong> places, next to each piece of assembly, the IR instruction that generated it; <strong>Source code lines</strong> interleaves the program lines as comments.</dd>
     <dt>IR</dt><dd>Chooses the IR shown in the code and graph tabs: unoptimized (like <code>clang -O0</code>) after mem2reg, in SSA form, or with the optimizations chosen in the Optimizations tab.</dd>
     <dt>Execution</dt><dd>The assembly is assembled and run by the same functional simulator as the Processor Simulator. The IR is also interpreted, and both results must match (the panel warns if they do not). The limit is two million instructions.</dd>
     <dt>Phases</dt><dd>Click a phase to open the matching tab.</dd>
     <dt>Linked views</dt><dd>A line clicked in the editor, in the IR or in the assembly is highlighted together with the matching lines in the other two views.</dd>
+    <dt>Infinite loops</dt><dd>While you type, execution stops at 100 thousand instructions, so the editor does not freeze; the Compile and run button uses the full limit of two million.</dd>
 </dl>`,
         },
         {

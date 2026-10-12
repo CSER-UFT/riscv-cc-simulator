@@ -327,4 +327,9 @@ export default {
     'opt.axis.fprec': 'bits de mantissa',
     'opt.axis.amul': 'bits zerados nos operandos',
     'opt.axis.mre': 'erro relativo médio (%)',
+    'btn.link': 'Copiar link',
+    'btn.linkHelp': 'Copia um link que reabre este programa, com a aba, o nível de IR e as otimizações escolhidas',
+    'ui.linkCopied': 'Link copiado',
+    'ui.copyThisLink': 'Copie o link:',
+    'run.liveLimit': 'Enquanto você digita, o limite é menor; clique em Compilar e executar para usar o limite cheio.',
 };

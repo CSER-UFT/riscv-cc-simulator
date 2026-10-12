@@ -327,4 +327,9 @@ export default {
     'opt.axis.fprec': 'mantissa bits',
     'opt.axis.amul': 'bits zeroed in the operands',
     'opt.axis.mre': 'mean relative error (%)',
+    'btn.link': 'Copy link',
+    'btn.linkHelp': 'Copies a link that reopens this program, with the tab, IR level and chosen optimizations',
+    'ui.linkCopied': 'Link copied',
+    'ui.copyThisLink': 'Copy the link:',
+    'run.liveLimit': 'While you type the limit is lower; click Compile and run to use the full limit.',
 };

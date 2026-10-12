@@ -29,11 +29,13 @@ export default {
             html: `
 <dl>
     <dt>Código MiniC</dt><dd>Editor com destaque de sintaxe. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> compila e executa de novo; <kbd>Tab</kbd> insere quatro espaços. O texto fica guardado no navegador para a próxima visita.</dd>
+    <dt>Copiar link</dt><dd>Copia um link que reabre o programa do editor, com a aba aberta, o nível de IR e as escolhas da aba Otimizações. Bom para a turma inteira começar do mesmo exemplo.</dd>
     <dt>Opções</dt><dd><strong>Comentários com a IR</strong> coloca, ao lado de cada trecho do assembly, a instrução da IR que o gerou; <strong>Linhas do código fonte</strong> intercala as linhas do programa como comentários.</dd>
     <dt>IR</dt><dd>Escolhe a IR mostrada nas abas de código e de grafos: sem otimização (como <code>clang -O0</code>) depois da mem2reg, na forma SSA, ou com as otimizações escolhidas na aba Otimizações.</dd>
     <dt>Execução</dt><dd>O assembly é montado e executado pelo mesmo simulador funcional do Simulador de Processadores. A IR também é interpretada, e os dois resultados precisam coincidir (o quadro avisa se não coincidirem). O limite é de dois milhões de instruções.</dd>
     <dt>Fases</dt><dd>Clique em uma fase para abrir a aba correspondente.</dd>
     <dt>Ligação entre as visões</dt><dd>Uma linha clicada no editor, na IR ou no assembly fica destacada, junto com as linhas correspondentes nas outras duas visões.</dd>
+    <dt>Laços infinitos</dt><dd>Enquanto você digita, a execução para em 100 mil instruções, para o editor não travar; o botão Compilar e executar usa o limite cheio, de dois milhões.</dd>
 </dl>`,
         },
         {
