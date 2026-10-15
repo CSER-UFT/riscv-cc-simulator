@@ -174,6 +174,12 @@
                             <label class="check" style="margin:0" data-i18n-title="dfg.opsOnlyHelp"><input type="checkbox" id="dfgOps" /> <span data-i18n="dfg.opsOnly">Só operações (sem acessos à memória)</span></label>
                         </div>
                         <div class="row lat-row" style="margin-top:8px"><span data-i18n="dfg.latTitle">Latências (ciclos):</span> <span id="dfgLatInputs" class="row"></span> <button type="button" class="btn outline" id="dfgLatReset" data-i18n="dfg.latReset">Padrão</button></div>
+                        <div class="row axc-row hidden" id="axcRow" style="margin-top:6px">
+                            <label class="check" style="margin:0"><input type="checkbox" id="axcOn" checked /> <span data-i18n="axc.use">Multiplicador aproximado:</span> <b class="mono" id="axcName"></b></label>
+                            <span class="note" id="axcInfo"></span>
+                            <button type="button" class="btn outline" id="axcSameArea" data-i18n="axc.sameArea" data-i18n-title="axc.sameAreaHelp">Mesma área do exato</button>
+                            <button type="button" class="btn outline" id="axcClear" data-i18n="axc.clear">Remover</button>
+                        </div>
                         <div class="fig-box" id="dfgFig"></div>
                         <p class="note" id="dfgLat"></p>
                         <div class="graph-pair">

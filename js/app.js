@@ -26,6 +26,7 @@ import { optChartSvg } from './ui/opt-chart.js';
 import { standaloneSvg } from './ui/svg-export.js';
 import { Help } from './ui/help.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
+import { parseProfile, approxLatency, delayRatio, unitArea, sameAreaCount } from './cc/axc.js';
 
 const $ = (id) => document.getElementById(id);
 const CPU_URL = 'https://cser-uft.github.io/riscv-cpu-simulator/';
@@ -635,8 +636,9 @@ function renderDfg() {
     }
     dfgView = { F, g, shown, summary, layout: layoutDfg(shown, (summary ?? t('dfg.summary', { len: g.length, sum: g.seqSum, ilp: '0.00' })).length) };
     drawDfg();
-    const changed = LAT_CLASSES.filter((k) => dfgLatency()[k] !== LATENCY[k]);
-    $('dfgLat').textContent = changed.length ? t('dfg.latChanged', { list: changed.map((k) => `${t(`cls.${k}`)} ${LATENCY[k]} → ${dfgLatency()[k]}`).join('; ') }) : t('dfg.latDefault');
+    const base = baseLatency();
+    const changed = LAT_CLASSES.filter((k) => base[k] !== LATENCY[k]);
+    $('dfgLat').textContent = (changed.length ? t('dfg.latChanged', { list: changed.map((k) => `${t(`cls.${k}`)} ${LATENCY[k]} → ${base[k]}`).join('; ') }) : t('dfg.latDefault')) + axcNote(base, mode === 'list' ? res.mul : null);
     const isList = mode === 'list';
     $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th>${isList ? `<th>${t('th.listStart')}</th><th>${t('th.unit')}</th>` : ''}</tr>`
         + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td>`
@@ -676,7 +678,7 @@ function fillLatInputs() {
         return `<label style="margin:0" title="${esc(t(`cls.${k}`))}"><span class="mono">${LAT_SHORT[k]}</span> <input type="number" id="lat-${k}" data-lat="${k}" min="1" max="99" value="${v}" style="width:52px" /></label>`;
     }).join('');
 }
-function dfgLatency() {
+function baseLatency() {
     const lat = { ...LATENCY };
     for (const k of LAT_CLASSES) {
         const v = Math.round(+$(`lat-${k}`)?.value);
@@ -684,6 +686,46 @@ function dfgLatency() {
     }
     return lat;
 }
+/** Latências usadas no grafo: as escolhidas, com a da multiplicação trocada pela do multiplicador aproximado. */
+function dfgLatency() {
+    const lat = baseLatency();
+    if (axcActive()) lat.mul = approxLatency(lat.mul, axcProf);
+    return lat;
+}
+
+// Multiplicador aproximado vindo do Simulador de Computação Aproximada (#axc= no endereço), guardado no navegador.
+let axcProf = null;
+try { axcProf = parseProfile(JSON.parse(store.get('cc.axcUnit') ?? 'null')); } catch { axcProf = null; }
+const axcActive = () => !!axcProf && $('axcOn').checked;
+function syncAxcRow() {
+    $('axcRow').classList.toggle('hidden', !axcProf);
+    if (!axcProf) return;
+    $('axcName').textContent = axcProf.name;
+    const a = unitArea(axcProf), d = delayRatio(axcProf);
+    const pct = (x) => `${Math.round(100 * x)}%`;
+    $('axcInfo').textContent = t('axc.info', {
+        mred: axcProf.MRED === null ? '?' : `${fmtNum(100 * axcProf.MRED)}%`,
+        area: pct(a.approx / a.exact), au: a.unit === 'gates' ? t('axc.gates') : 'µm²',
+        delay: pct(d.ratio), ds: t(d.source === 'asic' ? 'axc.srcAsic' : 'axc.srcGates'),
+    });
+}
+/** Nota do grafo: a latência do multiplicador aproximado e a área dos multiplicadores alocados. */
+function axcNote(base, nMul) {
+    if (!axcActive()) return '';
+    const a = unitArea(axcProf);
+    const u = a.unit === 'gates' ? t('axc.gates') : 'µm²';
+    let s = t('axc.note', { name: axcProf.name, from: base.mul, to: approxLatency(base.mul, axcProf) });
+    if (nMul) s += t('axc.areaNote', { n: nMul, approx: fmtNum(nMul * a.approx), exact: fmtNum(nMul * a.exact), u, same: sameAreaCount(nMul, axcProf) });
+    return s;
+}
+$('axcOn').addEventListener('change', () => { if (last?.phase === 'done') renderDfg(); });
+$('axcClear').onclick = () => { axcProf = null; store.set('cc.axcUnit', 'null'); syncAxcRow(); if (last?.phase === 'done') renderDfg(); };
+$('axcSameArea').onclick = () => {
+    if (!axcProf) return;
+    $('dfgSched').value = 'list';
+    $('res-mul').value = String(Math.min(16, sameAreaCount(Math.max(1, +$('res-mul').value || 1), axcProf)));
+    if (last?.phase === 'done') renderDfg();
+};
 fillLatInputs();
 $('dfgLatInputs').addEventListener('change', () => {
     const lat = dfgLatency();
@@ -1216,6 +1258,7 @@ function applyDomTranslations() {
     for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
     stop();
     help.render();
+    syncAxcRow();
 }
 langSelect.addEventListener('change', () => {
     setLanguage(langSelect.value);
@@ -1238,6 +1281,21 @@ setSrcLang(srcLang);
 const savedEx = store.get(exKey());
 const savedCode = store.get(codeKey());
 let shared = null;
+if (location.hash.startsWith('#axc=')) {
+    // Vindo do Simulador de Computação Aproximada: guarda o multiplicador e abre o fluxo de dados no escalonamento por lista.
+    try {
+        const prof = parseProfile(decodeShare(location.hash.slice(5)));
+        if (prof) {
+            axcProf = prof;
+            store.set('cc.axcUnit', JSON.stringify({ ...prof, asic: { area: prof.area, areaExact: prof.areaExact, delay: prof.delay, delayExact: prof.delayExact } }));
+            $('axcOn').checked = true;
+            $('dfgSched').value = 'list';
+            tab = 'dfg';
+        }
+    } catch { /* link inválido: ignora */ }
+    history.replaceState(null, '', location.pathname + location.search);
+}
+syncAxcRow();
 if (location.hash.startsWith('#s=')) {
     try { shared = decodeShare(location.hash.slice(3)); } catch { shared = null; }
     history.replaceState(null, '', location.pathname + location.search);
