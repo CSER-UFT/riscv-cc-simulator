@@ -709,12 +709,24 @@ try {
     const old = parseProfile(JSON.parse(store.get('cc.axcUnit') ?? 'null'));
     if (old && !axcLinked.mul) axcLinked.mul = { ...old, kind: 'mul' };
 } catch { /* nada guardado */ }
+/** Técnica de uma unidade do axc pelo nome (MUL8 T4 A2c, MUL16 BOOTH T6 +C, ADD8 LOA4...). */
+function axcTech(name) {
+    const w = name.split(' ')[1] ?? '';
+    if (/^(T|A)\d/.test(w)) return 'array';
+    const k = w.replace(/\d+$/, '').toLowerCase();
+    return ['booth', 'kul', 'drum', 'mitchell', 'trunc', 'loa', 'seg'].includes(k) ? k : 'other';
+}
 function axcOptions(kind) {
     const opts = [`<option value="exact">${t(kind === 'mul' ? 'axc.exactMul' : 'axc.exactAdd')}</option>`];
     if (axcLinked[kind]) opts.push(`<option value="link">${esc(t('axc.fromLink', { name: axcLinked[kind].name }))}</option>`);
-    const byWidth = new Map();
-    for (const [i, p] of axcList.entries()) if (p.kind === kind) (byWidth.get(p.width) ?? byWidth.set(p.width, []).get(p.width)).push(`<option value="${i}">${esc(p.name)}</option>`);
-    for (const [w, o] of byWidth) opts.push(`<optgroup label="${w} bits">${o.join('')}</optgroup>`);
+    // Agrupadas por largura e técnica (a lista do axc tem centenas de configurações).
+    const groups = new Map();
+    for (const [i, p] of axcList.entries()) {
+        if (p.kind !== kind) continue;
+        const key = `${p.width} bits, ${t(`axc.tech.${axcTech(p.name)}`)}`;
+        (groups.get(key) ?? groups.set(key, []).get(key)).push(`<option value="${i}">${esc(p.name)}</option>`);
+    }
+    for (const [g, o] of groups) opts.push(`<optgroup label="${esc(g)}">${o.join('')}</optgroup>`);
     return opts.join('');
 }
 function fillAxcSelects() {
