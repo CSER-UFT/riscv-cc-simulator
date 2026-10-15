@@ -247,6 +247,7 @@
                                 <p class="note" id="sweepLoopNote"></p>
                                 <label><span data-i18n="opt.pass.fprec">Precisão do float</span> <select id="optBits"><option value="23">23</option><option value="18">18</option><option value="14">14</option><option value="12">12</option><option value="10">10</option><option value="8">8</option><option value="6">6</option><option value="4">4</option><option value="2">2</option></select> <span data-i18n="opt.bitsUnit">bits de mantissa</span></label>
                                 <label><span data-i18n="opt.pass.amul">Multiplicação aproximada</span> <select id="optMul"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="12">12</option></select> <span data-i18n="opt.mulUnit">bits zerados</span></label>
+                                <label><span data-i18n="opt.pass.aadd">Soma aproximada</span> <select id="optAddKind"><option value="loa" data-i18n="opt.add.loa">LOA</option><option value="trunc" data-i18n="opt.add.trunc">truncamento</option></select> <select id="optAdd"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="12">12</option></select> <span data-i18n="opt.addUnit">bits baixos aproximados</span></label>
                             </div>
                         </div>
                         <div class="scroll-box"><table id="optTable"></table></div>
@@ -255,7 +256,7 @@
                         <ol id="optLog" class="opt-log"></ol>
                         <h3 data-i18n="opt.tradeoff">Erro contra ganho</h3>
                         <div class="row">
-                            <label style="margin:0"><span data-i18n="opt.technique">Técnica</span> <select id="sweepTech"><option value="perforate" data-i18n="opt.pass.perforate"></option><option value="fprec" data-i18n="opt.pass.fprec"></option><option value="amul" data-i18n="opt.pass.amul"></option></select></label>
+                            <label style="margin:0"><span data-i18n="opt.technique">Técnica</span> <select id="sweepTech"><option value="perforate" data-i18n="opt.pass.perforate"></option><option value="fprec" data-i18n="opt.pass.fprec"></option><option value="amul" data-i18n="opt.pass.amul"></option><option value="aadd" data-i18n="opt.pass.aadd"></option></select></label>
                             <button type="button" class="btn primary" id="sweepBtn" data-i18n="opt.sweep">Varrer</button>
                             <span class="note" id="sweepStatus"></span>
                             <button type="button" class="btn outline" id="optSvgBtn" data-i18n="exp.svg">Exportar figura (SVG)</button>

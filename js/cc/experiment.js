@@ -12,6 +12,7 @@ export const SWEEPS = {
     perforate: [1, 2, 3, 4, 6, 8],
     fprec: [23, 18, 14, 12, 10, 8, 6, 4, 2],
     amul: [0, 1, 2, 3, 4, 5, 6, 8],
+    aadd: [0, 1, 2, 3, 4, 5, 6, 8, 10, 12],
 };
 
 /**
@@ -30,8 +31,8 @@ export function measure(c, opts, ref, { model = 'pipeline', maxSteps = 2000000 }
 
 /**
  * Varre os valores de uma técnica.
- * @param {'perforate'|'fprec'|'amul'} tech
- * @param {{classic: string[], loop?: {fn, header}}} base
+ * @param {'perforate'|'fprec'|'amul'|'aadd'} tech
+ * @param {{classic: string[], loop?: {fn, header}, addKind?: 'trunc'|'loa'}} base
  */
 export function sweep(c, tech, base, { model = 'pipeline', values = SWEEPS[tech] } = {}) {
     const ref = interpret(c.module);
@@ -41,6 +42,7 @@ export function sweep(c, tech, base, { model = 'pipeline', values = SWEEPS[tech]
         if (tech === 'perforate') opts.perforate = { ...base.loop, k: x };
         if (tech === 'fprec') opts.fprec = x;
         if (tech === 'amul') opts.amul = x;
+        if (tech === 'aadd') opts.aadd = { kind: base.addKind ?? 'loa', k: x };
         const m = measure(c, opts, ref, { model });
         return {
             x, mre: m.err.mre, maxAbs: m.err.maxAbs, same: m.err.same, finished: m.err.finished && m.prof.finished !== false,

@@ -13,7 +13,11 @@
  * Aproximadas (trocam exatidão por desempenho):
  *   perforate perfuração de laço: a variável de indução avança k passos de cada vez, pulando iterações;
  *   fprec     redução de precisão: o resultado de cada operação float tem a mantissa truncada para m bits;
- *   amul      multiplicação inteira aproximada: os k bits menos significativos dos operandos são zerados.
+ *   amul      multiplicação inteira aproximada: os k bits menos significativos dos operandos são zerados;
+ *   aadd      soma e subtração inteiras aproximadas, com os somadores do axc-simulator: truncamento (os k bits
+ *             menos significativos dos operandos zerados) ou LOA (os k bits baixos viram o OU dos operandos, e o
+ *             E dos bits k-1 entra como vai-um na parte alta, que é exata). A subtração é a soma com o
+ *             complemento do subtraendo, como numa unidade de soma e subtração.
  * As aproximações não tocam no que calcula endereços (getelementptr) nem condições de desvio, para que o
  * programa continue acessando a memória certa e terminando.
  *
@@ -420,9 +424,56 @@ function approxMul(F, k, log) {
 }
 
 /**
+ * Soma aproximada em 32 bits, igual à função do somador do axc-simulator com a parte alta exata.
+ * @param {'trunc'|'loa'} kind
+ */
+export function approxAddValue(kind, k, a, b) {
+    if (!k) return (a + b) | 0;
+    if (kind === 'trunc') return ((a & ~((1 << k) - 1)) + (b & ~((1 << k) - 1))) | 0;
+    const cin = (a >> (k - 1)) & (b >> (k - 1)) & 1;
+    return ((((a >> k) + (b >> k) + cin) << k) | ((a | b) & ((1 << k) - 1))) | 0;
+}
+
+function approxAdd(F, { kind, k }, log) {
+    const prot = protectedValues(F);
+    const low = (1 << k) - 1;
+    let n = 0;
+    for (const b of F.blocks) {
+        for (const i of [...b.insts]) {
+            if (!['add', 'sub'].includes(i.op) || i.ty !== 'i32' || prot.has(i.dst)) continue;
+            const before = T(i);
+            const meta = { line: i.line, node: i.node };
+            const base = valueText(i.dst).slice(1);
+            let t = 0;
+            const emit = (op, x, y) => {
+                if (isConst(x) && isConst(y)) return cInt(op === 'ashr' ? x.v >> y.v : op === 'shl' ? x.v << y.v : op === 'and' ? x.v & y.v
+                    : op === 'or' ? x.v | y.v : op === 'xor' ? x.v ^ y.v : (x.v + y.v) | 0);
+                if (isConst(x) && op !== 'ashr' && op !== 'shl') [x, y] = [y, x];
+                const d = { vk: 'temp', ty: 'i32', name: `${base}.a${t++}` };
+                b.insts.splice(b.insts.indexOf(i), 0, { op, dst: d, ty: 'i32', a: x, b: y, ...meta });
+                return d;
+            };
+            if (kind === 'trunc') {
+                i.a = emit('and', i.a, cInt(~low));
+                i.b = emit('and', i.b, cInt(~low));
+            } else {
+                const x = i.a, y = i.op === 'sub' ? emit('xor', i.b, cInt(-1)) : i.b;
+                const lo = emit('and', emit('or', x, y), cInt(low));
+                const cin = emit('and', emit('and', emit('ashr', x, cInt(k - 1)), emit('ashr', y, cInt(k - 1))), cInt(1));
+                const hi = emit('shl', emit('add', emit('add', emit('ashr', x, cInt(k)), emit('ashr', y, cInt(k))), cin), cInt(k));
+                Object.assign(i, { op: 'or', a: hi, b: lo });
+            }
+            log.push({ pass: 'aadd', key: `opt.aadd.${kind}`, p: { i: before, k, b: k - 1 } });
+            n++;
+        }
+    }
+    return n > 0;
+}
+
+/**
  * Aplica as passagens escolhidas a uma cópia do módulo em SSA.
  * @param {object} module saída da mem2reg
- * @param {{classic?: string[], perforate?: {fn, header, k}|null, fprec?: number|null, amul?: number|null}} opts
+ * @param {{classic?: string[], perforate?: {fn, header, k}|null, fprec?: number|null, amul?: number|null, aadd?: {kind: 'trunc'|'loa', k: number}|null}} opts
  * @returns {{module: object, log: Array}}
  */
 export function optimize(module, opts = {}) {
@@ -442,6 +493,7 @@ export function optimize(module, opts = {}) {
         if (opts.perforate && opts.perforate.fn === F.name && opts.perforate.k > 1) perforate(F, opts.perforate.header, opts.perforate.k, log);
         if (opts.fprec !== null && opts.fprec !== undefined && opts.fprec < 23) reducePrecision(F, opts.fprec, log);
         if (opts.amul) approxMul(F, opts.amul, log);
+        if (opts.aadd?.k > 0) approxAdd(F, opts.aadd, log);
         if (classic.has('dce')) dce(F, log);
         cleanupCfg(F, null);
         return F;

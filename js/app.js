@@ -987,7 +987,7 @@ let optView = null, sweepRes = null, sweepRun = 0;
 function optState() {
     return {
         classic: CLASSIC.filter((k) => $(`opt-${k}`).checked), loop: $('optLoop').value, k: +$('optK').value,
-        bits: +$('optBits').value, mul: +$('optMul').value,
+        bits: +$('optBits').value, mul: +$('optMul').value, addKind: $('optAddKind').value, add: +$('optAdd').value,
     };
 }
 function optOptions(st, approx = true) {
@@ -997,6 +997,7 @@ function optOptions(st, approx = true) {
         perforate: approx && fn ? { fn, header, k: st.k } : null,
         fprec: approx ? st.bits : null,
         amul: approx ? st.mul : null,
+        aadd: approx && st.add ? { kind: st.addKind, k: st.add } : null,
     };
 }
 /** Versão otimizada (com as escolhas atuais), guardada pela assinatura das escolhas. */
@@ -1013,7 +1014,7 @@ function getOpt(approx = true) {
     }
     return last.optCache.get(sig);
 }
-const approxActive = (st) => (st.loop && st.k > 1) || st.bits < 23 || st.mul > 0;
+const approxActive = (st) => (st.loop && st.k > 1) || st.bits < 23 || st.mul > 0 || st.add > 0;
 
 function fillOptLoops() {
     const sel = $('optLoop');
@@ -1055,11 +1056,12 @@ function renderOpt() {
 
 function drawSweep() {
     const tech = $('sweepTech').value;
-    if (!sweepRes || sweepRes.tech !== tech || !sweepRes.pts.length) { $('optChart').innerHTML = ''; $('optSweep').innerHTML = ''; return; }
+    if (!sweepRes || sweepRes.tech !== tech || (tech === 'aadd' && sweepRes.addKind !== $('optAddKind').value) || !sweepRes.pts.length) { $('optChart').innerHTML = ''; $('optSweep').innerHTML = ''; return; }
     const xKey = tech === 'perforate' ? 'speedup' : 'x';
-    const pLabel = (p) => t(`opt.p.${tech}`, { v: p.x });
+    const kind = t(`opt.add.${sweepRes.addKind}`);
+    const pLabel = (p) => t(`opt.p.${tech}`, { v: p.x, kind });
     $('optChart').innerHTML = optChartSvg(sweepRes.pts, {
-        xKey, pLabel, title: t(`opt.chart.${tech}`), xLabel: t(xKey === 'speedup' ? 'opt.axis.speedup' : `opt.axis.${tech}`), yLabel: t('opt.axis.mre'),
+        xKey, pLabel, title: t(`opt.chart.${tech}`, { kind }), xLabel: t(xKey === 'speedup' ? 'opt.axis.speedup' : `opt.axis.${tech}`), yLabel: t('opt.axis.mre'),
     });
     $('optSweep').innerHTML = `<tr><th>${t(`opt.param.${tech}`)}</th><th>${t('th.cyclesPipe')}</th><th>${t('th.speedup')}</th><th>${t('run.ret')}</th><th>${t('th.mre')}</th><th>${t('th.maxAbs')}</th></tr>`
         + sweepRes.pts.map((p) => `<tr><td>${esc(pLabel(p))}</td><td>${p.cycles === null ? '-' : fmtNum(p.cycles)}</td><td>${p.speedup ? `${p.speedup.toFixed(2)}×` : '-'}</td><td class="mono">${p.finished ? esc(String(p.ret)) : t('opt.notEnd')}</td>`
@@ -1074,14 +1076,14 @@ $('sweepBtn').onclick = () => {
     if (tech === 'perforate' && !loop) { $('sweepStatus').textContent = t('opt.chooseLoop'); return; }
     const run = ++sweepRun;
     const values = SWEEPS[tech];
-    sweepRes = { tech, pts: [] };
+    sweepRes = { tech, addKind: st.addKind, pts: [] };
     const c = last;
     let k = 0;
     const step = () => {
         if (run !== sweepRun || c !== last) return;
         if (k >= values.length) { $('sweepStatus').textContent = t('opt.sweepDone', { n: values.length }); return; }
         $('sweepStatus').textContent = t('opt.sweeping', { i: k + 1, n: values.length });
-        sweepRes.pts.push(...sweepPoint(c, tech, { classic: st.classic, loop }, { values: [values[k]] }));
+        sweepRes.pts.push(...sweepPoint(c, tech, { classic: st.classic, loop, addKind: st.addKind }, { values: [values[k]] }));
         k++;
         drawSweep();
         setTimeout(step, 0);
@@ -1089,7 +1091,7 @@ $('sweepBtn').onclick = () => {
     setTimeout(step, 0);
 };
 $('sweepTech').onchange = drawSweep;
-for (const id of [...CLASSIC.map((k) => `opt-${k}`), 'optLoop', 'optK', 'optBits', 'optMul']) $(id).addEventListener('change', optChanged);
+for (const id of [...CLASSIC.map((k) => `opt-${k}`), 'optLoop', 'optK', 'optBits', 'optMul', 'optAddKind', 'optAdd']) $(id).addEventListener('change', optChanged);
 
 // Abas -------------------------------------------------------------------------------------------------------
 
@@ -1233,7 +1235,7 @@ function applyShared(p) {
     const o = p.opt;
     if (o) {
         for (const k of CLASSIC) $(`opt-${k}`).checked = (o.classic ?? CLASSIC).includes(k);
-        for (const [id, v] of [['optLoop', o.loop], ['optK', o.k], ['optBits', o.bits], ['optMul', o.mul]]) {
+        for (const [id, v] of [['optLoop', o.loop], ['optK', o.k], ['optBits', o.bits], ['optMul', o.mul], ['optAddKind', o.addKind], ['optAdd', o.add]]) {
             if (v !== undefined && [...$(id).options].some((x) => x.value === String(v))) $(id).value = String(v);
         }
         optChanged();

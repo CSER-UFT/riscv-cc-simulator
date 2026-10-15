@@ -74,3 +74,33 @@ test('redução de precisão do float e multiplicação aproximada', () => {
     const r = run(m, module);
     assert.equal(r.asm.reason, 'end');
 });
+
+test('soma aproximada: truncamento e LOA como os somadores do axc', async () => {
+    const { approxAddValue } = await import('../js/cc/opt.js');
+    const vals = [1234, -567, 89, 4321, -2048, 77, 999, -3];
+    const src = `int v[8] = {${vals.join(', ')}}; int d[8];
+int main() { int s = 0; for (int i = 0; i < 8; i++) { s = s + v[i]; d[i] = s - v[7 - i]; } return s; }`;
+    const c = compile(src);
+    const ref = interpret(c.module);
+    for (const kind of ['trunc', 'loa']) {
+        for (const k of [0, 3, 6]) {
+            const { module, log } = optimize(c.ssa.module, { classic: CLASSIC, aadd: { kind, k } });
+            const r = run(c, module);
+            assert.equal(r.asm.ret, r.ir.ret, `${kind} ${k}`);
+            // Retorno e vetor d iguais ao modelo (na truncada, a subtração é (a & m) - (b & m)).
+            let s2 = 0; const d2 = [];
+            for (let i = 0; i < 8; i++) {
+                s2 = approxAddValue(kind, k, s2, vals[i]);
+                const y = vals[7 - i];
+                d2.push(k === 0 ? (s2 - y) | 0 : kind === 'trunc' ? ((s2 & ~((1 << k) - 1)) - (y & ~((1 << k) - 1))) | 0 : approxAddValue('loa', k, s2, ~y));
+            }
+            assert.equal(r.ir.ret, s2, `${kind} ${k} ret`);
+            assert.deepEqual(r.ir.globals.get('d'), d2, `${kind} ${k} d`);
+            if (k === 0) assert.equal(r.ir.ret, ref.ret);
+            else assert.ok(log.some((l) => l.key === `opt.aadd.${kind}`));
+        }
+    }
+    // O incremento do laço (endereço e condição) não é aproximado: o programa termina.
+    const { module } = optimize(ex('matriz').ssa.module, { aadd: { kind: 'loa', k: 8 } });
+    assert.equal(run(ex('matriz'), module).asm.reason, 'end');
+});
