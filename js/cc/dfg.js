@@ -18,6 +18,7 @@ export function opClass(op) {
         case 'phi': return 'phi';
         case 'load': return 'load';
         case 'store': return 'store';
+        case 'add': case 'sub': return 'add';
         case 'mul': return 'mul';
         case 'sdiv': case 'srem': return 'div';
         case 'fadd': case 'fsub': case 'fcmp': case 'sitofp': case 'fptosi': case 'fneg': return 'fadd';
@@ -101,7 +102,9 @@ export function blockDfg(F, label, lat = LATENCY, { opsOnly = false } = {}) {
     }
     const nodes = insts.map((inst, k) => {
         const cls = opClass(inst.op);
-        return { id: k, inst, cls, lat: lat[cls] ?? LATENCY[cls] ?? 1, text: instText(inst), preds: [], succs: [], toMem: !!inst.dst && toMem.has(inst.dst) };
+        // Soma e subtração usam a latência da ULA, a não ser que haja uma própria (somador aproximado).
+        const l = cls === 'add' ? lat.add ?? lat.alu ?? LATENCY.alu : lat[cls] ?? LATENCY[cls] ?? 1;
+        return { id: k, inst, cls, lat: l, text: instText(inst), preds: [], succs: [], toMem: !!inst.dst && toMem.has(inst.dst) };
     });
     const local = new Map();
     nodes.forEach((n) => { if (n.inst.dst) local.set(n.inst.dst, n.id); });
@@ -198,7 +201,7 @@ export function defUse(F) {
 }
 
 /** Classe de unidade funcional de cada classe de instrução, no escalonamento com recursos (estilo HLS). */
-export const UNIT_OF = { alu: 'alu', branch: 'alu', mul: 'mul', div: 'mul', load: 'mem', store: 'mem', call: 'mem', fadd: 'fpu', fmul: 'fpu', fdiv: 'fpu', phi: null };
+export const UNIT_OF = { alu: 'alu', add: 'alu', branch: 'alu', mul: 'mul', div: 'mul', load: 'mem', store: 'mem', call: 'mem', fadd: 'fpu', fmul: 'fpu', fdiv: 'fpu', phi: null };
 export const UNITS = ['alu', 'mul', 'mem', 'fpu'];
 
 /**

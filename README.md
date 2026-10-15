@@ -14,7 +14,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 * **IR e RISC-V** lado a lado, ligados ao código fonte: uma linha clicada em qualquer das três visões destaca as correspondentes nas outras duas. O assembly pode trazer como comentários a instrução da IR e a linha do fonte que geraram cada trecho.
 * **mem2reg**: a mesma IR na forma SSA, como `opt -passes=mem2reg` (phi na fronteira de dominância iterada, podada pela vivacidade, com os nomes `%i.0` do LLVM), com o assembly gerado a partir dela e a comparação das duas versões na execução.
 * **Fluxo de controle**: grafo de fluxo de controle em camadas, árvore de dominadores, fronteira de dominância e laços naturais com a profundidade de aninhamento; um clique num bloco destaca os seus dominadores e a sua fronteira.
-* **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; escalonamento por lista com recursos limitados (ALU, multiplicador, memória, ponto flutuante), com ou sem unidades em pipeline, como na síntese de alto nível; cadeias de definição e uso da função.
+* **Fluxo de dados**: grafo de dependências de cada bloco (dados e memória) em escala de tempo, com o escalonamento ASAP e ALAP, a folga, o caminho crítico e o paralelismo disponível, usando as latências do simulador de processadores; escalonamento por lista com recursos limitados (ALU, multiplicador, memória, ponto flutuante), com ou sem unidades em pipeline, como na síntese de alto nível; multiplicador e somador aproximados escolhidos entre as configurações sintetizadas do [axc-simulator](https://github.com/CSER-UFT/axc-simulator) (ou abertos pelo botão de lá), que mudam a latência da multiplicação e da soma e dão a área das unidades alocadas; cadeias de definição e uso da função.
 * **Mapa de calor** no código fonte, na IR, no assembly e no CFG: frequência estimada dos blocos (como a BlockFrequencyInfo do LLVM), execuções medidas e ciclos e bolhas de cada instrução no monociclo, no pipeline ou na emissão dupla do simulador de processadores, com ou sem caches; comparação entre a frequência estimada e a medida e exportação em CSV.
 * **Otimizações** sobre a SSA, cada uma com a lista do que transformou: propagação de constantes e de desvios com junção de blocos, simplificação algébrica e redução de força, eliminação de subexpressões comuns e de loads repetidos, movimentação de código invariante (LICM) e eliminação de código morto; e **aproximações**: perfuração de laço, redução da precisão do float e multiplicação inteira aproximada, com o erro das saídas, a aceleração em ciclos e a varredura de erro contra ganho, exportável em SVG e CSV.
 * **Alocação de registradores** por varredura linear (linear scan), com registradores preservados para os valores vivos durante chamadas, spill para o quadro e cópias paralelas das `phi`; tabela com o intervalo de vida e o registrador de cada valor.
@@ -52,7 +52,7 @@ Roda inteiramente no navegador (HTML e JavaScript, sem dependências), em portug
 
 ## Próximas etapas previstas
 
-* Unidades aproximadas modeladas em hardware (área, energia e latência), para que a redução de precisão e a multiplicação aproximada tenham ganho medido, e não só emulado.
+* Execução do programa com o produto e a soma da unidade aproximada escolhida, para medir o erro no resultado com o mesmo modelo usado na latência e na área.
 
 ## Testes
 

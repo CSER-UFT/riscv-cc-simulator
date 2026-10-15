@@ -126,6 +126,6 @@ int main() {
         // Latência de soma 3: o caminho crítico (cadeia de 5 somas depois do deslocamento) cresce.
         const slow = blockDfg(F, body.label, { ...LATENCY, alu: 3 }, { opsOnly: true });
         assert.ok(slow.length > ops.length);
-        assert.ok(slow.nodes.every((n) => n.lat === ({ ...LATENCY, alu: 3 })[n.cls]));
+        assert.ok(slow.nodes.every((n) => n.lat === ({ ...LATENCY, alu: 3, add: 3 })[n.cls]));
     }
 });

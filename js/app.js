@@ -26,7 +26,7 @@ import { optChartSvg } from './ui/opt-chart.js';
 import { standaloneSvg } from './ui/svg-export.js';
 import { Help } from './ui/help.js';
 import { LANGUAGES, getLanguage, setLanguage, t } from './i18n/index.js';
-import { parseProfile, approxLatency, delayRatio, unitArea, sameAreaCount } from './cc/axc.js';
+import { parseProfile, approxLatency, delayRatio, unitArea, sameAreaCount, profilesFromSynth, serializeProfile } from './cc/axc.js';
 
 const $ = (id) => document.getElementById(id);
 const CPU_URL = 'https://cser-uft.github.io/riscv-cpu-simulator/';
@@ -638,7 +638,7 @@ function renderDfg() {
     drawDfg();
     const base = baseLatency();
     const changed = LAT_CLASSES.filter((k) => base[k] !== LATENCY[k]);
-    $('dfgLat').textContent = (changed.length ? t('dfg.latChanged', { list: changed.map((k) => `${t(`cls.${k}`)} ${LATENCY[k]} → ${base[k]}`).join('; ') }) : t('dfg.latDefault')) + axcNote(base, mode === 'list' ? res.mul : null);
+    $('dfgLat').textContent = (changed.length ? t('dfg.latChanged', { list: changed.map((k) => `${t(`cls.${k}`)} ${LATENCY[k]} → ${base[k]}`).join('; ') }) : t('dfg.latDefault')) + axcNote(base, mode === 'list' ? res : null);
     const isList = mode === 'list';
     $('dfgTable').innerHTML = `<tr><th>#</th><th>${t('th.inst')}</th><th>${t('th.lat')}</th><th>${t('th.asap')}</th><th>${t('th.alap')}</th><th>${t('th.slack')}</th>${isList ? `<th>${t('th.listStart')}</th><th>${t('th.unit')}</th>` : ''}</tr>`
         + g.nodes.map((n) => `<tr data-id="${n.id}" class="${n.critical ? 'crit' : ''}"><td>${n.id}</td><td class="mono left" title="${esc(n.text)}">${esc(shortText(n.inst))}</td><td>${n.lat}</td><td>${n.start}</td><td>${n.alap}</td><td>${n.slack}</td>`
@@ -686,46 +686,107 @@ function baseLatency() {
     }
     return lat;
 }
-/** Latências usadas no grafo: as escolhidas, com a da multiplicação trocada pela do multiplicador aproximado. */
+/** Latências usadas no grafo: as escolhidas, com a da multiplicação e a da soma trocadas pelas das unidades aproximadas. */
 function dfgLatency() {
     const lat = baseLatency();
-    if (axcActive()) lat.mul = approxLatency(lat.mul, axcProf);
+    const { mul, add } = axcChosen();
+    if (mul) lat.mul = approxLatency(lat.mul, mul);
+    lat.add = add ? approxLatency(lat.alu, add) : lat.alu;
     return lat;
 }
 
-// Multiplicador aproximado vindo do Simulador de Computação Aproximada (#axc= no endereço), guardado no navegador.
-let axcProf = null;
-try { axcProf = parseProfile(JSON.parse(store.get('cc.axcUnit') ?? 'null')); } catch { axcProf = null; }
-const axcActive = () => !!axcProf && $('axcOn').checked;
+// Unidades aproximadas do Simulador de Computação Aproximada: as sintetizadas (lidas do synth.json publicado no
+// mesmo site) e a que veio pelo botão de lá (#axc= no endereço). A escolha fica guardada no navegador.
+const AXC_SYNTH_URLS = ['/axc-simulator/data/synth.json', '../axc-simulator/data/synth.json', 'https://cser-uft.github.io/axc-simulator/data/synth.json'];
+let axcList = [];                 // perfis das configurações sintetizadas
+const axcLinked = { mul: null, add: null };   // perfil vindo do link, por tipo
+try {
+    for (const k of ['mul', 'add']) {
+        const p = parseProfile(JSON.parse(store.get(`cc.axcLinked.${k}`) ?? 'null'));
+        if (p && p.kind === k) axcLinked[k] = p;
+    }
+    // Versão anterior: um multiplicador só, em cc.axcUnit.
+    const old = parseProfile(JSON.parse(store.get('cc.axcUnit') ?? 'null'));
+    if (old && !axcLinked.mul) axcLinked.mul = { ...old, kind: 'mul' };
+} catch { /* nada guardado */ }
+function axcOptions(kind) {
+    const opts = [`<option value="exact">${t(kind === 'mul' ? 'axc.exactMul' : 'axc.exactAdd')}</option>`];
+    if (axcLinked[kind]) opts.push(`<option value="link">${esc(t('axc.fromLink', { name: axcLinked[kind].name }))}</option>`);
+    const byWidth = new Map();
+    for (const [i, p] of axcList.entries()) if (p.kind === kind) (byWidth.get(p.width) ?? byWidth.set(p.width, []).get(p.width)).push(`<option value="${i}">${esc(p.name)}</option>`);
+    for (const [w, o] of byWidth) opts.push(`<optgroup label="${w} bits">${o.join('')}</optgroup>`);
+    return opts.join('');
+}
+function fillAxcSelects() {
+    for (const [id, kind] of [['axcMul', 'mul'], ['axcAdd', 'add']]) {
+        const el = $(id), want = el.value || store.get(`cc.axcSel.${kind}`) || 'exact';
+        el.innerHTML = axcOptions(kind);
+        el.value = [...el.options].some((o) => o.value === want) ? want : 'exact';
+    }
+}
+/** Perfis escolhidos (null: exato). */
+function axcChosen() {
+    const pick = (id, kind) => {
+        const v = $(id).value;
+        if (v === 'link') return axcLinked[kind];
+        if (v === 'exact' || v === '') return null;
+        return axcList[+v] ?? null;
+    };
+    return { mul: pick('axcMul', 'mul'), add: pick('axcAdd', 'add') };
+}
 function syncAxcRow() {
-    $('axcRow').classList.toggle('hidden', !axcProf);
-    if (!axcProf) return;
-    $('axcName').textContent = axcProf.name;
-    const a = unitArea(axcProf), d = delayRatio(axcProf);
-    const pct = (x) => `${Math.round(100 * x)}%`;
-    $('axcInfo').textContent = t('axc.info', {
-        mred: axcProf.MRED === null ? '?' : `${fmtNum(100 * axcProf.MRED)}%`,
-        area: pct(a.approx / a.exact), au: a.unit === 'gates' ? t('axc.gates') : 'µm²',
-        delay: pct(d.ratio), ds: t(d.source === 'asic' ? 'axc.srcAsic' : 'axc.srcGates'),
-    });
+    fillAxcSelects();
+    const chosen = axcChosen();
+    const parts = [];
+    for (const kind of ['mul', 'add']) {
+        const p = chosen[kind];
+        if (!p) continue;
+        const a = unitArea(p), d = delayRatio(p);
+        const pct = (x) => `${Math.round(100 * x)}%`;
+        parts.push(t('axc.info', {
+            name: p.name,
+            mred: p.MRED === null ? '?' : `${fmtNum(100 * p.MRED)}%`,
+            area: pct(a.approx / a.exact), au: a.unit === 'gates' ? t('axc.gates') : 'µm²',
+            delay: pct(d.ratio), ds: t(d.source === 'asic' ? 'axc.srcAsic' : 'axc.srcGates'),
+        }));
+    }
+    $('axcInfo').textContent = parts.length ? parts.join(' ') : (axcList.length ? t('axc.none') : t('axc.noList'));
 }
-/** Nota do grafo: a latência do multiplicador aproximado e a área dos multiplicadores alocados. */
-function axcNote(base, nMul) {
-    if (!axcActive()) return '';
-    const a = unitArea(axcProf);
-    const u = a.unit === 'gates' ? t('axc.gates') : 'µm²';
-    let s = t('axc.note', { name: axcProf.name, from: base.mul, to: approxLatency(base.mul, axcProf) });
-    if (nMul) s += t('axc.areaNote', { n: nMul, approx: fmtNum(nMul * a.approx), exact: fmtNum(nMul * a.exact), u, same: sameAreaCount(nMul, axcProf) });
-    return s;
+/** Nota do grafo: latências das unidades aproximadas e área das unidades alocadas. */
+function axcNote(base, res) {
+    const { mul, add } = axcChosen();
+    let s = '';
+    for (const [p, cls, from, n] of [[mul, 'mul', base.mul, res?.mul], [add, 'add', base.alu, res?.alu]]) {
+        if (!p) continue;
+        const a = unitArea(p), u = a.unit === 'gates' ? t('axc.gates') : 'µm²';
+        s += t(`axc.note.${cls}`, { name: p.name, from, to: approxLatency(from, p) });
+        if (n) s += t(`axc.areaNote.${cls}`, { n, approx: fmtNum(n * a.approx), exact: fmtNum(n * a.exact), u, same: sameAreaCount(n, p) });
+    }
+    return s ? `${s} ${t('axc.exactRun')}` : '';
 }
-$('axcOn').addEventListener('change', () => { if (last?.phase === 'done') renderDfg(); });
-$('axcClear').onclick = () => { axcProf = null; store.set('cc.axcUnit', 'null'); syncAxcRow(); if (last?.phase === 'done') renderDfg(); };
+for (const [id, kind] of [['axcMul', 'mul'], ['axcAdd', 'add']]) {
+    $(id).addEventListener('change', () => { store.set(`cc.axcSel.${kind}`, $(id).value); syncAxcRow(); if (last?.phase === 'done') renderDfg(); });
+}
 $('axcSameArea').onclick = () => {
-    if (!axcProf) return;
+    const { mul, add } = axcChosen();
+    if (!mul && !add) return;
     $('dfgSched').value = 'list';
-    $('res-mul').value = String(Math.min(16, sameAreaCount(Math.max(1, +$('res-mul').value || 1), axcProf)));
+    if (mul) $('res-mul').value = String(Math.min(16, sameAreaCount(Math.max(1, +$('res-mul').value || 1), mul)));
+    if (add) $('res-alu').value = String(Math.min(16, sameAreaCount(Math.max(1, +$('res-alu').value || 1), add)));
     if (last?.phase === 'done') renderDfg();
 };
+(async () => {
+    for (const url of AXC_SYNTH_URLS) {
+        try {
+            const r = await fetch(url);
+            if (!r.ok) continue;
+            axcList = profilesFromSynth(await r.json());
+            if (axcList.length) break;
+        } catch { /* tenta o próximo endereço */ }
+    }
+    syncAxcRow();
+    if (last?.phase === 'done') renderDfg();
+})();
 fillLatInputs();
 $('dfgLatInputs').addEventListener('change', () => {
     const lat = dfgLatency();
@@ -1282,13 +1343,15 @@ const savedEx = store.get(exKey());
 const savedCode = store.get(codeKey());
 let shared = null;
 if (location.hash.startsWith('#axc=')) {
-    // Vindo do Simulador de Computação Aproximada: guarda o multiplicador e abre o fluxo de dados no escalonamento por lista.
+    // Vindo do Simulador de Computação Aproximada: guarda a unidade e abre o fluxo de dados no escalonamento por lista.
     try {
         const prof = parseProfile(decodeShare(location.hash.slice(5)));
         if (prof) {
-            axcProf = prof;
-            store.set('cc.axcUnit', JSON.stringify({ ...prof, asic: { area: prof.area, areaExact: prof.areaExact, delay: prof.delay, delayExact: prof.delayExact } }));
-            $('axcOn').checked = true;
+            axcLinked[prof.kind] = prof;
+            store.set(`cc.axcLinked.${prof.kind}`, JSON.stringify(serializeProfile(prof)));
+            store.set(`cc.axcSel.${prof.kind}`, 'link');
+            fillAxcSelects();
+            $(prof.kind === 'mul' ? 'axcMul' : 'axcAdd').value = 'link';
             $('dfgSched').value = 'list';
             tab = 'dfg';
         }
